@@ -146,6 +146,7 @@
 #define OV5647MIPI_SENSOR_ID                        0x5647
 #define OV8825_SENSOR_ID            			0x8825
 #define OV12830_SENSOR_ID			  0xC830
+#define OV9760MIPI_SENSOR_ID                    0x9760
 #define OV5648MIPI_SENSOR_ID                    0x5648
 
 #define PO6030K_SENSOR_ID                       0x0060
