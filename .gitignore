@@ -1,0 +1,4 @@
+*.pyc
+/makeMtk.ini
+/out
+/mediatek/misc
