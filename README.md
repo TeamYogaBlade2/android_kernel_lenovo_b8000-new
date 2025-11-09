@@ -1,7 +1,7 @@
 WHAT IS THIS?
 =============
 
-Linux Kernel source code for the device bq Aquaris 5
+Linux Kernel source code for the device Lenovo YOGA Tablet 10 based on bq Aquaris 5
 
 BUILD INSTRUCTIONS?
 ===================
@@ -9,25 +9,10 @@ BUILD INSTRUCTIONS?
 Specific sources are separated by branches and each version is tagged with it's corresponding number. First, you should
 clone the project:
 
-	$ git clone git@github.com:bq/aquaris-5.git
+	$ git clone --filter=blob:none https://github.com/TeamYogaBlade2/android_kernel_lenovo_b8000-new
 
-After it, choose the version you would like to build
+(or `--depht=1`)
 
-Jelly Bean: 1.x
+Build the kernel:
 
-KitKat: 2.x
-
-    $ cd aquaris-5/
-
-    $ git checkout 2.0.0-20140910-1000
-
-
-Finally, build the kernel:
-
-Jelly Bean:
-
-	$ ./makeMtk -t eastaeon89_wet_jb2 n k
-
-KitKat:
-
-	$ ./makeMtk -t eastaeon89_wet_kk n k
+	$ ./makeMtk -t blade10 n k
