@@ -168,6 +168,7 @@ extern LCM_DRIVER otm9605a_dsi_vdo_lg_lcm_drv;
 extern LCM_DRIVER nt35517_dsi_vdo_qhd_lcm_drv;
 extern LCM_DRIVER hx8389b_qhd_dsi_vdo_drv;
 
+extern LCM_DRIVER dummy_lcm_drv;
 
 LCM_DRIVER* lcm_driver_list[] = 
 { 
@@ -749,6 +750,10 @@ LCM_DRIVER* lcm_driver_list[] =
 
 #if defined(HX8389B_QHD_DSI_VDO)
 	&hx8389b_qhd_dsi_vdo_drv,
+#endif
+
+#if defined(DUMMY)
+	&dummy_lcm_drv,
 #endif
 
 };

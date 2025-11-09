@@ -108,3 +108,11 @@ const LCM_DRIVER* LCM_GetDriver()
     return &LCM_DRV;
 }
 
+LCM_DRIVER dummy_lcm_drv =
+{
+        .set_util_funcs = lcm_set_util_funcs,
+        .get_params     = lcm_get_params,
+        .init           = lcm_init,
+        .suspend        = lcm_suspend,
+        .resume         = lcm_resume
+};
