@@ -52,9 +52,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Ccache statistics
-        if: ${{ !cancelled() }}
-        run: ccache -sv
+#      - name: Ccache statistics
+#        if: ${{ !cancelled() }}
+#        run: ccache -sv
 
       - uses: mxschmitt/action-tmate@v3
         if: ${{ inputs.tmate }}
