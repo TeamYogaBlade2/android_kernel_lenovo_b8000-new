@@ -39,10 +39,10 @@ jobs:
       - name: Setup env
         run: |
           sudo ln -sf /usr/bin/bash /usr/bin/sh
-          mkdir -p /dev/shm/ccache
-          sudo apt install ccache
-          ccache -M 5G
-          ccache -z
+          #mkdir -p /dev/shm/ccache
+          #sudo apt install ccache
+          #ccache -M 5G
+          #ccache -z
 
       - name: Build
         run: ./makeMtk -t blade10 n k
