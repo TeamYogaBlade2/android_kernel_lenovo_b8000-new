@@ -7,7 +7,7 @@
 //  Local Constants
 // ---------------------------------------------------------------------------
 
-#define FRAME_WIDTH  (480)
+#define FRAME_WIDTH  (1280)
 #define FRAME_HEIGHT (800)
 
 
