@@ -15,4 +15,4 @@ clone the project:
 
 Build the kernel:
 
-	$ ./makeMtk -t blade10 n k
+	$ ./makeMtk -t -o=TARGET_BUILD_VARIANT=user blade10 n k

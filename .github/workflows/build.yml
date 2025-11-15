@@ -45,7 +45,7 @@ jobs:
           #ccache -z
 
       - name: Build
-        run: ./makeMtk -t blade10 n k
+        run: ./makeMtk -t -o=TARGET_BUILD_VARIANT=user blade10 n k
 
       - name: Release
         run: gh release create "build-$(date +%Y-%m-%d-%H-%M-%S)" out/Download/flash/kernel_blade10.bin
