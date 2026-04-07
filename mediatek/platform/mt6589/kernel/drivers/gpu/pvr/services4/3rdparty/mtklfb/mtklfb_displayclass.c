@@ -1017,7 +1017,7 @@ static void MTKLFBDeInitFBDev(MTKLFB_DEVINFO *psDevInfo)
 
 	if (psLINFBInfo->fbops->fb_release != NULL) 
 	{
-		(void) psLINFBInfo->fbops->fb_release(NULL, psLINFBInfo, 0);
+		(void) psLINFBInfo->fbops->fb_release(psLINFBInfo, 0);
 	}
 
 	module_put(psLINFBOwner);

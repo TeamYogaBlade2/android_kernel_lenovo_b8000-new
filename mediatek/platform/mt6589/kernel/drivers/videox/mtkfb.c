@@ -531,7 +531,7 @@ static int mtkfb_search_overlayList_ex(struct fb_overlay_buffer_list* head, void
 
 /* Called when the mtkfb device is closed. We make sure that any pending
  * gfx DMA operations are ended, before we return. */
-static int mtkfb_release(struct file *file, struct fb_info *info, int user)
+static int mtkfb_release(struct fb_info *info, int user)
 {
     NOT_REFERENCED(info);
     NOT_REFERENCED(user);
