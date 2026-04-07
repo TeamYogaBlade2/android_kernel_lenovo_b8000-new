@@ -153,6 +153,7 @@ else
 fi
 
 # update configuration
+yes "" | nice make ${makeflags} ${makedefs} oldconfig
 nice make ${makeflags} ${makedefs} silentoldconfig
 
 if [ ! -z $KMOD_PATH ]; then
