@@ -1,5 +1,5 @@
 #include <linux/string.h>
-#include <platform/mt_gpio.h>
+#include <mach/mt_gpio.h>
 #include "lcm_drv.h"
 
 
