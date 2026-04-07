@@ -1445,7 +1445,7 @@ __releases(&info->lock)
 	}
 	file->private_data = info;
 	if (info->fbops->fb_open) {
-		res = info->fbops->fb_open(file,info,1);
+		res = info->fbops->fb_open(info,1);
 		if (res)
 			module_put(info->fbops->owner);
 	}
@@ -1469,7 +1469,7 @@ __releases(&info->lock)
 
 	mutex_lock(&info->lock);
 	if (info->fbops->fb_release)
-		info->fbops->fb_release(file,info,1);
+		info->fbops->fb_release(info,1);
 	module_put(info->fbops->owner);
 	mutex_unlock(&info->lock);
 	put_fb_info(info);
