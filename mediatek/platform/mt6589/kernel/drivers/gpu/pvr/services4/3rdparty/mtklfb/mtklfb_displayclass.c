@@ -881,7 +881,7 @@ static MTKLFB_ERROR MTKLFBInitFBDev(MTKLFB_DEVINFO *psDevInfo)
 	{
 		int res;
 
-		res = psLINFBInfo->fbops->fb_open(NULL, psLINFBInfo, 0);
+		res = psLINFBInfo->fbops->fb_open(psLINFBInfo, 0);
 		if (res != 0)
 		{
 			xlog_printk(ANDROID_LOG_INFO, DRIVER_PREFIX, DRIVER_PREFIX

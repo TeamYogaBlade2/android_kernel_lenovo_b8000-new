@@ -337,11 +337,7 @@ unsigned int mtkfb_fb_lk_copy_size()
  * ---------------------------------------------------------------------------
  */
 /* Called each time the mtkfb device is opened */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)
-static int mtkfb_open(struct file *file, struct fb_info *info, int user)
-#else
 static int mtkfb_open(struct fb_info *info, int user)
-#endif
 {
     NOT_REFERENCED(info);
     NOT_REFERENCED(user);
@@ -353,11 +349,7 @@ static int mtkfb_open(struct fb_info *info, int user)
 
 /* Called when the mtkfb device is closed. We make sure that any pending
  * gfx DMA operations are ended, before we return. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)
-static int mtkfb_release(struct file *file, struct fb_info *info, int user)
-#else
 static int mtkfb_release(struct fb_info *info, int user)
-#endif
 {
     NOT_REFERENCED(info);
     NOT_REFERENCED(user);

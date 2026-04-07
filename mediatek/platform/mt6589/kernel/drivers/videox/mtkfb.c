@@ -470,7 +470,7 @@ void mtkfb_m4u_dump(void)
  * ---------------------------------------------------------------------------
  */
 /* Called each time the mtkfb device is opened */
-static int mtkfb_open(struct file *file, struct fb_info *info, int user)
+static int mtkfb_open(struct fb_info *info, int user)
 {
     NOT_REFERENCED(info);
     NOT_REFERENCED(user);
