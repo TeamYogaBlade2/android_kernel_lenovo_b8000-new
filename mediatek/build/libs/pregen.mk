@@ -149,9 +149,9 @@ endif
 	$(hide) echo -e \\t\\t\\t\\b\\b\\b\\bLOG: $(S_LOG)$(basename $(notdir $@)).log
 	$(hide) rm -f $(LOG)$(basename $(notdir $@)).log $(LOG)$(basename $(notdir $@)).log_err
 	$(hide) mkdir -p $(MTK_ROOT_OUT)/DRVGEN
-	$(hide) $(MTK_ROOT_SOURCE)/dct/DrvGen $(MTK_ROOT_CUSTOM)/$(PROJECT)/kernel/dct/$(PRIVATE_CUSTOM_KERNEL_DCT)/codegen.dws $(MTK_ROOT_OUT)/DRVGEN $(MTK_ROOT_OUT)/DRVGEN $(DEAL_STDOUT_DRVGEN) $(MTK_DEPENDENCY_LOG)
+	#$(hide) $(MTK_ROOT_SOURCE)/dct/DrvGen $(MTK_ROOT_CUSTOM)/$(PROJECT)/kernel/dct/$(PRIVATE_CUSTOM_KERNEL_DCT)/codegen.dws $(MTK_ROOT_OUT)/DRVGEN $(MTK_ROOT_OUT)/DRVGEN $(DEAL_STDOUT_DRVGEN) $(MTK_DEPENDENCY_LOG)
 ifneq ($(LOG),)
-	@echo '[Dependency] $(PRIVATE_DRVGEN_DEPENDENCY) $(MTK_ROOT_CUSTOM)/$(PROJECT)/kernel/dct/$(PRIVATE_CUSTOM_KERNEL_DCT)/codegen.dws' >> $(LOG)$(basename $(notdir $@)).log
+	#@echo '[Dependency] $(PRIVATE_DRVGEN_DEPENDENCY) $(MTK_ROOT_CUSTOM)/$(PROJECT)/kernel/dct/$(PRIVATE_CUSTOM_KERNEL_DCT)/codegen.dws' >> $(LOG)$(basename $(notdir $@)).log
 	$(call mtk-print-dependency)
 	$(call mtk-print-argument,$(PRIVATE_DRVGEN_DEPENDENCY))
 endif
