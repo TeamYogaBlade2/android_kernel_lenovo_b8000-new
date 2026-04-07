@@ -1,5 +1,6 @@
 #include <linux/string.h>
 #include <mach/mt_gpio.h>
+#include <mach/mt_pm_ldo.h>
 #include "lcm_drv.h"
 
 
@@ -60,9 +61,9 @@ static bool lcm_compare_id(void)
 static void lcm_get_params(LCM_PARAMS *params)
 {
   __memzero(params,0x23c);
-  (params->dsi).data_format.color_order = LCM_COLOR_ORDER_ RGB;
-  (params->dsi).data_format.trans_seq = LCM_DSI_TRANS_SEQ_ MSB_FIRST;
-  (params->dsi).data_format.padding = LCM_DSI_PADDING_ON_L SB;
+  (params->dsi).data_format.color_order = LCM_COLOR_ORDER_RGB;
+  (params->dsi).data_format.trans_seq = LCM_DSI_TRANS_SEQ_MSB_FIRST;
+  (params->dsi).data_format.padding = LCM_DSI_PADDING_ON_LSB;
   (params->dsi).intermediat_buffer_num = 0;
   params->type = LCM_TYPE_DSI;
   (params->dsi).word_count = 0x870;
@@ -71,7 +72,7 @@ static void lcm_get_params(LCM_PARAMS *params)
   params->height = 800;
   (params->dsi).mode = SYNC_EVENT_VDO_MODE;
   (params->dsi).LANE_NUM = LCM_FOUR_LANE;
-  (params->dsi).data_format.format = LCM_DSI_FORMAT_RGB888 ;
+  (params->dsi).data_format.format = LCM_DSI_FORMAT_RGB888;
   (params->dsi).packet_size = 0x100;
   (params->dsi).PS = LCM_PACKED_PS_24BIT_RGB888;
   (params->dsi).vertical_sync_active = 2;
@@ -126,11 +127,10 @@ static void lcm_suspend(void)
 LCM_DRIVER cm_hx8896a01_dsi_vdo_boe_drv =
 {
 	.name = "cm_hx8896a01_dsi_vdo_boe",
-	.lcd_power_en = lcd_power_en,
-	.lcm_compare_id = lcm_compare_id,
-	.lcm_get_params = lcm_get_params,
-	.lcm_init = lcm_init,
-	.lcm_resume = lcm_resume,
-	.lcm_set_util_funcs = lcm_set_util_funcs,
-	.lcm_suspend = lcm_suspend,
+	.compare_id = lcm_compare_id,
+	.get_params = lcm_get_params,
+	.init = lcm_init,
+	.resume = lcm_resume,
+	.set_util_funcs = lcm_set_util_funcs,
+	.suspend = lcm_suspend,
 };
