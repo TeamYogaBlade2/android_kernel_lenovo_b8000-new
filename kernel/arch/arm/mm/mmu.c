@@ -31,7 +31,6 @@
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
-#include <mach/mtk_memcfg.h>
 
 #include "mm.h"
 
@@ -46,6 +45,8 @@ EXPORT_SYMBOL(empty_zero_page);
  * The pmd table for the upper-most set of pages.
  */
 pmd_t *top_pmd;
+
+pmdval_t user_pmd_table = _PAGE_USER_TABLE;
 
 #define CPOLICY_UNCACHED	0
 #define CPOLICY_BUFFERED	1
@@ -466,6 +467,25 @@ static void __init build_mem_type_table(void)
 		}
 	}
 
+#ifndef CONFIG_ARM_LPAE
+        /*
+         * We don't use domains on ARMv6 (since this causes problems with
+         * v6/v7 kernels), so we must use a separate memory type for user
+         * r/o, kernel r/w to map the vectors page.
+         */
+        if (cpu_arch == CPU_ARCH_ARMv6)
+                vecs_pgprot |= L_PTE_MT_VECTORS;
+
+	/*
+	 * Check is it with support for the PXN bit
+	 * in the Short-descriptor translation table format descriptors.
+	 */
+	if (cpu_arch == CPU_ARCH_ARMv7 &&
+		(read_cpuid_ext(CPUID_EXT_MMFR0) & 0xF) >= 4) {
+		user_pmd_table |= PMD_PXNTABLE;
+	}
+#endif
+
 	/*
 	 * Non-cacheable Normal - intended for memory areas that must
 	 * not cause dirty cache line writebacks when used
@@ -495,6 +515,11 @@ static void __init build_mem_type_table(void)
 	}
 	kern_pgprot |= PTE_EXT_AF;
 	vecs_pgprot |= PTE_EXT_AF;
+
+	/*
+	 * Set PXN for user mappings
+	 */
+	user_pgprot |= PTE_EXT_PXN;
 #endif
 
 	for (i = 0; i < 16; i++) {
@@ -1101,7 +1126,7 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	/*
 	 * Allocate the vector page early.
 	 */
-	vectors = early_alloc(PAGE_SIZE);
+	vectors = early_alloc(PAGE_SIZE * 2);
 
 	early_trap_init(vectors);
 
@@ -1146,14 +1171,26 @@ static void __init devicemaps_init(struct machine_desc *mdesc)
 	map.pfn = __phys_to_pfn(virt_to_phys(vectors));
 	map.virtual = 0xffff0000;
 	map.length = PAGE_SIZE;
+#ifdef CONFIG_KUSER_HELPERS
 	map.type = MT_HIGH_VECTORS;
+#else
+	map.type = MT_LOW_VECTORS;
+#endif
 	create_mapping(&map, false);
 
 	if (!vectors_high()) {
 		map.virtual = 0;
+		map.length = PAGE_SIZE * 2;
 		map.type = MT_LOW_VECTORS;
 		create_mapping(&map, false);
 	}
+
+	/* Now create a kernel read-only mapping */
+	map.pfn += 1;
+	map.virtual = 0xffff0000 + PAGE_SIZE;
+	map.length = PAGE_SIZE;
+	map.type = MT_LOW_VECTORS;
+	create_mapping(&map, false);
 
 	/*
 	 * Ask the machine support to map in the statically mapped devices.
@@ -1192,10 +1229,6 @@ static void __init map_lowmem(void)
 	for_each_memblock(memory, reg) {
 		start = reg->base;
 		end = start + reg->size;
-                MTK_MEMCFG_LOG_AND_PRINTK(KERN_ALERT"[PHY layout]kernel   :   0x%08llx - 0x%08llx (0x%08llx)\n",
-                      (unsigned long long)start,
-                      (unsigned long long)end - 1,
-                      (unsigned long long)reg->size);
 
 		if (end > lowmem_limit)
 			end = lowmem_limit;
@@ -1207,10 +1240,6 @@ static void __init map_lowmem(void)
 		map.length = end - start;
 		map.type = MT_MEMORY;
 
-                printk(KERN_ALERT"creating mapping start pa: 0x%08llx @ 0x%08llx "
-                        ", end pa: 0x%08llx @ 0x%08llx\n",
-                       (unsigned long long)start, (unsigned long long)map.virtual,
-                       (unsigned long long)end, (unsigned long long)__phys_to_virt(end));
 		create_mapping(&map, false);
 	}
 
@@ -1253,89 +1282,3 @@ void __init paging_init(struct machine_desc *mdesc)
 	empty_zero_page = virt_to_page(zero_page);
 	__flush_dcache_page(NULL, empty_zero_page);
 }
-
-#define __PMD_TYPE_MASK 0x3
-#define __PMD_TYPE_TABLE 0x1
-#define __PMD_TYPE_SECTION 0x2
-#define __PMD_TABLE_MASK 0xFFFFFC00
-#define __PMD_TEX_MASK 0x00007000
-#define __PMD_TEX_SHIFT 12
-#define __PMD_CB_MASK 0x0000000C
-#define __PMD_CB_SHIFT 2
-#define __PTE_TYPE_MASK 0x3
-#define __PTE_TYPE_FAULT 0x0
-#define __PTE_TYPE_LARGE 0x1
-#define __PTE_LARGE_TEX_MASK 0x00007000
-#define __PTE_LARGE_TEX_SHIFT 12
-#define __PTE_CB_MASK 0x0000000C
-#define __PTE_CB_SHIFT 2
-#define __PTE_SMALL_TEX_MASK 0x000001C0
-#define __PTE_SMALL_TEX_SHIFT 6
-#define __IR_NON_CACHEABLE 0
-void __force_clock(u32 l)
-{
-	u32 ttb, nmrr, nmrr_val;
-	volatile u32 *pgd, *pte = 0;
-	int texcb;
-
-	ttb = 0;
-	asm volatile (
-		"mrc p15, 0, %0, c2, c0, 0\n"
-		: "+r"(ttb)
-		:
-		: "cc"
-	);
-	ttb = ttb & ~(0x4000 - 1);
-
-	nmrr = 0;
-	asm volatile (
-		"mrc p15, 0, %0, c10, c2, 1\n"
-		: "+r"(nmrr)
-		:
-		: "cc"
-	);
-
-	pgd = (volatile u32 *)__va(ttb);
-	pgd += (l >> 20);
-	if ((*pgd & __PMD_TYPE_MASK) == __PMD_TYPE_TABLE) {
-		/* page */
-		pte = __va(*pgd & __PMD_TABLE_MASK);
-		pte += (l & ((1 << 20) - 1)) >> 12;
-		if ((*pte & __PTE_TYPE_MASK) == __PTE_TYPE_FAULT) {
-			/* fault */
-			printk(KERN_CRIT "Invalid pte. l = 0x%x, pgd = 0x%x, pte = 0x%x", l, (u32)pgd, (u32)pte);
-			BUG();
-		} else if ((*pte & __PTE_TYPE_MASK) == __PTE_TYPE_LARGE) {
-			/* large page */
-			texcb = (*pte & __PTE_LARGE_TEX_MASK) >> (__PTE_LARGE_TEX_SHIFT);
-			texcb = texcb << 2;
-			texcb = (*pte & __PTE_CB_MASK) >> (__PTE_CB_SHIFT);
-		} else {
-			/* small page */
-			texcb = (*pte & __PTE_SMALL_TEX_MASK) >> (__PTE_SMALL_TEX_SHIFT);
-			texcb = texcb << 2;
-			texcb = (*pte & __PTE_CB_MASK) >> (__PTE_CB_SHIFT);
-		}
-	} else if ((*pgd & __PMD_TYPE_MASK) == __PMD_TYPE_SECTION) {
-		/* section, supersection */
-		texcb = (*pgd & __PMD_TEX_MASK) >> (__PMD_TEX_SHIFT);
-		texcb = texcb << 2;
-		texcb |= (*pgd & __PMD_CB_MASK) >> (__PMD_CB_SHIFT);
-	} else {
-		/* fault */
-		printk(KERN_CRIT "Invalid pte. l = 0x%x, pgd = 0x%x", l, (u32)pgd);
-		BUG();
-	}
-
-	nmrr_val = (nmrr >> (2 * texcb)) & 0x3;
-	if (nmrr_val == __IR_NON_CACHEABLE) {
-		printk(KERN_CRIT "Find a non-cached lock. \
-					l = 0x%x, \
-					pgd = 0x%x, pte = 0x%x, \
-					texcb = 0x%x, nmrr_val = 0x%x", \
-					l, (u32)pgd, (u32)pte, texcb, nmrr_val);
-		BUG();
-	}
-}
-
-EXPORT_SYMBOL(__force_clock);

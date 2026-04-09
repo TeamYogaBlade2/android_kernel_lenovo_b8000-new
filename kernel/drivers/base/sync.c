@@ -31,12 +31,6 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sync.h>
 
-// [MTK] {{{
-// disable these logs temporarily
-// TODO: redirect these logs to proc_fs
-//#define SYNC_OBJ_DEBUG
-// [MTK] }}}
-
 static void sync_fence_signal_pt(struct sync_pt *pt);
 static int _sync_pt_has_signaled(struct sync_pt *pt);
 static void sync_fence_free(struct kref *kref);
@@ -323,16 +317,7 @@ static int sync_fence_copy_pts(struct sync_fence *dst, struct sync_fence *src)
 	list_for_each(pos, &src->pt_list_head) {
 		struct sync_pt *orig_pt =
 			container_of(pos, struct sync_pt, pt_list);
-		// [MTK] {{{
-		// rjan Eide <orjan.eide@arm.com>
-		struct sync_pt *new_pt;
-
-		/* Skip already signaled points */
-		if (1 == orig_pt->status)
-			continue;
-		// [MTK] }}}
-
-		new_pt = sync_pt_dup(orig_pt);
+		struct sync_pt *new_pt = sync_pt_dup(orig_pt);
 
 		if (new_pt == NULL)
 			return -ENOMEM;
@@ -352,13 +337,6 @@ static int sync_fence_merge_pts(struct sync_fence *dst, struct sync_fence *src)
 		struct sync_pt *src_pt =
 			container_of(src_pos, struct sync_pt, pt_list);
 		bool collapsed = false;
-
-		// [MTK] {{{
-		// rjan Eide <orjan.eide@arm.com>
-		/* Skip already signaled points */
-		if (1 == src_pt->status)
-			continue;
-		// [MTK] }}}
 
 		list_for_each_safe(dst_pos, n, &dst->pt_list_head) {
 			struct sync_pt *dst_pt =
@@ -486,19 +464,6 @@ struct sync_fence *sync_fence_merge(const char *name,
 	err = sync_fence_merge_pts(fence, b);
 	if (err < 0)
 		goto err;
-
-	// [MTK] {{{
-	// rjan Eide <orjan.eide@arm.com>
-	/* Make sure there is at least one point in the fence */
-	if (list_empty(&fence->pt_list_head)) {
-		struct sync_pt *orig_pt = list_first_entry(&a->pt_list_head,
-						struct sync_pt, pt_list);
-		struct sync_pt *new_pt = sync_pt_dup(orig_pt);
-
-		new_pt->fence = fence;
-		list_add(&new_pt->pt_list, &fence->pt_list_head);
-	}
-	// [MTK] }}}
 
 	list_for_each(pos, &fence->pt_list_head) {
 		struct sync_pt *pt =
@@ -889,12 +854,6 @@ static const char *sync_status_str(int status)
 static void sync_print_pt(struct seq_file *s, struct sync_pt *pt, bool fence)
 {
 	int status = pt->status;
-
-	// [MTK] {{{
-	// only dump non-signaled fence
-	if (status > 0) return;
-	// [MTK] }}}
-
 	seq_printf(s, "  %s%spt %s",
 		   fence ? pt->parent->name : "",
 		   fence ? "_" : "",
@@ -922,8 +881,6 @@ static void sync_print_pt(struct seq_file *s, struct sync_pt *pt, bool fence)
 	seq_printf(s, "\n");
 }
 
-// [MTK] {{{
-#ifdef SYNC_OBJ_DEBUG
 static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 {
 	struct list_head *pos;
@@ -950,8 +907,6 @@ static void sync_print_obj(struct seq_file *s, struct sync_timeline *obj)
 	}
 	spin_unlock_irqrestore(&obj->child_list_lock, flags);
 }
-#endif
-// [MTK] }}}
 
 static void sync_print_fence(struct seq_file *s, struct sync_fence *fence)
 {
@@ -983,8 +938,6 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 	unsigned long flags;
 	struct list_head *pos;
 
-	// [MTK] {{{
-#ifdef SYNC_OBJ_DEBUG
 	seq_printf(s, "objs:\n--------------\n");
 
 	spin_lock_irqsave(&sync_timeline_list_lock, flags);
@@ -997,8 +950,6 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 		seq_printf(s, "\n");
 	}
 	spin_unlock_irqrestore(&sync_timeline_list_lock, flags);
-#endif
-	// [MTK] }}}
 
 	seq_printf(s, "fences:\n--------------\n");
 
@@ -1007,16 +958,8 @@ static int sync_debugfs_show(struct seq_file *s, void *unused)
 		struct sync_fence *fence =
 			container_of(pos, struct sync_fence, sync_fence_list);
 
-		// [MTK] {{{
-		// only dump non-signaled fence
-		if (fence->status > 0)
-			continue;
-		// [MTK] }}}
-
 		sync_print_fence(s, fence);
-		// [MTK] {{{
-		//seq_printf(s, "\n");
-		// [MTK] }}}
+		seq_printf(s, "\n");
 	}
 	spin_unlock_irqrestore(&sync_fence_list_lock, flags);
 	return 0;
@@ -1041,37 +984,29 @@ static __init int sync_debugfs_init(void)
 }
 late_initcall(sync_debugfs_init);
 
-// [MTK] {{{
-#ifdef SYNC_OBJ_DEBUG
 #define DUMP_CHUNK 256
 static char sync_dump_buf[64 * 1024];
-#endif
-// [MTK] }}}
 void sync_dump(void)
 {
-// [MTK] {{{
-#ifdef SYNC_OBJ_DEBUG
-	struct seq_file s = {
-		.buf = sync_dump_buf,
-		.size = sizeof(sync_dump_buf) - 1,
-	};
-	int i;
+       struct seq_file s = {
+               .buf = sync_dump_buf,
+               .size = sizeof(sync_dump_buf) - 1,
+       };
+       int i;
 
-	sync_debugfs_show(&s, NULL);
+       sync_debugfs_show(&s, NULL);
 
-	for (i = 0; i < s.count; i += DUMP_CHUNK) {
-		if ((s.count - i) > DUMP_CHUNK) {
-			char c = s.buf[i + DUMP_CHUNK];
-			s.buf[i + DUMP_CHUNK] = 0;
-			pr_cont("%s", s.buf + i);
-			s.buf[i + DUMP_CHUNK] = c;
-		} else {
-			s.buf[s.count] = 0;
-			pr_cont("%s", s.buf + i);
-		}
-	}
-#endif
-// [MTK] }}}
+       for (i = 0; i < s.count; i += DUMP_CHUNK) {
+               if ((s.count - i) > DUMP_CHUNK) {
+                       char c = s.buf[i + DUMP_CHUNK];
+                       s.buf[i + DUMP_CHUNK] = 0;
+                       pr_cont("%s", s.buf + i);
+                       s.buf[i + DUMP_CHUNK] = c;
+               } else {
+                       s.buf[s.count] = 0;
+                       pr_cont("%s", s.buf + i);
+               }
+       }
 }
 #else
 static void sync_dump(void)

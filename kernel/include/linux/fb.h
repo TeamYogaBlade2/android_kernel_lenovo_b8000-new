@@ -676,7 +676,7 @@ struct fb_ops {
 	int (*fb_sync)(struct fb_info *info);
 
 	/* perform fb specific ioctl (optional) */
-	int (*fb_ioctl)(struct file *file, struct fb_info *info, unsigned int cmd,
+	int (*fb_ioctl)(struct fb_info *info, unsigned int cmd,
 			unsigned long arg);
 
 	/* Handle 32bit compat ioctl (optional) */

@@ -27,7 +27,6 @@
 #include <linux/devpts_fs.h>
 #include <linux/slab.h>
 
-#include <asm/system.h>
 
 #ifdef CONFIG_UNIX98_PTYS
 static struct tty_driver *ptm_driver;
@@ -46,10 +45,8 @@ static void pty_close(struct tty_struct *tty, struct file *filp)
 	wake_up_interruptible(&tty->read_wait);
 	wake_up_interruptible(&tty->write_wait);
 	tty->packet = 0;
-        tty->peer_stops = 0;    
 	if (!tty->link)
 		return;
-        tty->link->peer_stops = 0;
 	set_bit(TTY_OTHER_CLOSED, &tty->link->flags);
 	wake_up_interruptible(&tty->link->read_wait);
 	wake_up_interruptible(&tty->link->write_wait);
@@ -114,9 +111,8 @@ static int pty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 {
 	struct tty_struct *to = tty->link;
 
-	if (tty->stopped || tty->peer_stops) {
+	if (tty->stopped)
 		return 0;
-	}
 
 	if (c > 0) {
 		/* Stuff the data into the input queue of the other end */
@@ -140,10 +136,8 @@ static int pty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 
 static int pty_write_room(struct tty_struct *tty)
 {
-	if (tty->stopped || tty->peer_stops) {
+	if (tty->stopped)
 		return 0;
-	}
-
 	return pty_space(tty->link);
 }
 
@@ -397,7 +391,6 @@ static void __init legacy_pty_init(void)
 	if (!pty_slave_driver)
 		panic("Couldn't allocate pty slave driver");
 
-	pty_driver->owner = THIS_MODULE;
 	pty_driver->driver_name = "pty_master";
 	pty_driver->name = "pty";
 	pty_driver->major = PTY_MASTER_MAJOR;
@@ -415,7 +408,6 @@ static void __init legacy_pty_init(void)
 	pty_driver->other = pty_slave_driver;
 	tty_set_operations(pty_driver, &master_pty_ops_bsd);
 
-	pty_slave_driver->owner = THIS_MODULE;
 	pty_slave_driver->driver_name = "pty_slave";
 	pty_slave_driver->name = "ttyp";
 	pty_slave_driver->major = PTY_SLAVE_MAJOR;
@@ -443,25 +435,7 @@ static inline void legacy_pty_init(void) { }
 /* Unix98 devices */
 #ifdef CONFIG_UNIX98_PTYS
 
-static int tty_count;
-static int pty_count;
-
-static inline void pty_inc_count(void)
-{
-	pty_count = (++tty_count) / 2;
-}
-
-static inline void pty_dec_count(void)
-{
-	pty_count = (--tty_count) / 2;
-}
-
 static struct cdev ptmx_cdev;
-
-#define TCOOFF 0
-#define TCOON 1
-#define TCIOFF 2
-#define TCION 3
 
 static int pty_unix98_ioctl(struct tty_struct *tty,
 			    unsigned int cmd, unsigned long arg)
@@ -473,20 +447,6 @@ static int pty_unix98_ioctl(struct tty_struct *tty,
 		return put_user(tty->index, (unsigned int __user *)arg);
 	case TIOCSIG:    /* Send signal to other side of pty */
 		return pty_signal(tty, (int) arg);
-	case TCXONC: /* Flow Control */
-		switch (arg) {
-                case TCIOFF:
-                     tty->link->peer_stops=1;
-                     break;
-                case TCION:
-                     tty->link->peer_stops=0;           
-                     if (waitqueue_active(&tty->link->write_wait))
-                         wake_up_interruptible(&tty->link->write_wait);
-                     break;
-                default:
-                     return -EINVAL;
-		}
-                return 0;
 	}
 
 	return -ENOIOCTLCMD;
@@ -504,10 +464,8 @@ static int pty_unix98_ioctl(struct tty_struct *tty,
 static struct tty_struct *ptm_unix98_lookup(struct tty_driver *driver,
 		struct inode *ptm_inode, int idx)
 {
-	struct tty_struct *tty = devpts_get_tty(ptm_inode, idx);
-	if (tty)
-		tty = tty->link;
-	return tty;
+	/* Master must be open via /dev/ptmx */
+	return ERR_PTR(-EIO);
 }
 
 /**
@@ -578,8 +536,6 @@ static int pty_unix98_install(struct tty_driver *driver, struct tty_struct *tty)
 	 */
 	tty_driver_kref_get(driver);
 	tty->count++;
-	pty_inc_count(); /* tty */
-	pty_inc_count(); /* tty->link */
 	return 0;
 err_free_mem:
 	deinitialize_tty_struct(o_tty);
@@ -591,15 +547,18 @@ err_free_tty:
 	return -ENOMEM;
 }
 
-static void pty_unix98_remove(struct tty_driver *driver, struct tty_struct *tty)
+static void ptm_unix98_remove(struct tty_driver *driver, struct tty_struct *tty)
 {
-	pty_dec_count();
+}
+
+static void pts_unix98_remove(struct tty_driver *driver, struct tty_struct *tty)
+{
 }
 
 static const struct tty_operations ptm_unix98_ops = {
 	.lookup = ptm_unix98_lookup,
 	.install = pty_unix98_install,
-	.remove = pty_unix98_remove,
+	.remove = ptm_unix98_remove,
 	.open = pty_open,
 	.close = pty_close,
 	.write = pty_write,
@@ -616,7 +575,7 @@ static const struct tty_operations ptm_unix98_ops = {
 static const struct tty_operations pty_unix98_ops = {
 	.lookup = pts_unix98_lookup,
 	.install = pty_unix98_install,
-	.remove = pty_unix98_remove,
+	.remove = pts_unix98_remove,
 	.open = pty_open,
 	.close = pty_close,
 	.write = pty_write,
@@ -625,7 +584,6 @@ static const struct tty_operations pty_unix98_ops = {
 	.chars_in_buffer = pty_chars_in_buffer,
 	.unthrottle = pty_unthrottle,
 	.set_termios = pty_set_termios,
-	.ioctl = pty_unix98_ioctl,
 	.shutdown = pty_unix98_shutdown
 };
 
@@ -712,7 +670,6 @@ static void __init unix98_pty_init(void)
 	if (!pts_driver)
 		panic("Couldn't allocate Unix98 pts driver");
 
-	ptm_driver->owner = THIS_MODULE;
 	ptm_driver->driver_name = "pty_master";
 	ptm_driver->name = "ptm";
 	ptm_driver->major = UNIX98_PTY_MASTER_MAJOR;
@@ -731,7 +688,6 @@ static void __init unix98_pty_init(void)
 	ptm_driver->other = pts_driver;
 	tty_set_operations(ptm_driver, &ptm_unix98_ops);
 
-	pts_driver->owner = THIS_MODULE;
 	pts_driver->driver_name = "pty_slave";
 	pts_driver->name = "pts";
 	pts_driver->major = UNIX98_PTY_SLAVE_MAJOR;

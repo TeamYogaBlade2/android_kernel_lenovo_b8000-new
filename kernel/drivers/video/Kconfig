@@ -2418,7 +2418,9 @@ source "drivers/video/omap2/Kconfig"
 source "drivers/video/exynos/Kconfig"
 source "drivers/video/backlight/Kconfig"
 
-source "drivers/video/console/Kconfig"
+if VT
+	source "drivers/video/console/Kconfig"
+endif
 
 if FB || SGI_NEWPORT_CONSOLE
 	source "drivers/video/logo/Kconfig"

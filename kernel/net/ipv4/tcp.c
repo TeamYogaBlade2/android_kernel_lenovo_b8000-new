@@ -472,7 +472,7 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	int answ;
-	
+
 	switch (cmd) {
 	case SIOCINQ:
 		if (sk->sk_state == TCP_LISTEN)
@@ -516,25 +516,6 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		else
 			answ = tp->write_seq - tp->snd_nxt;
 		break;
-        case SIOCKILLSOCK:
-         {
-             struct uid_err uid_e;
-             if (copy_from_user(&uid_e, (char __user *)arg, sizeof(uid_e)))
-                 return -EFAULT;
-             printk(KERN_WARNING "SIOCKILLSOCK uid = %d , err = %d",
-			 	         uid_e.appuid, uid_e.errNum);
-             if (uid_e.errNum == 0)
-             {
-                 // handle BR release problem
-                 tcp_v4_handle_retrans_time_by_uid(uid_e);
-             }
-             else
-             {
-                 tcp_v4_reset_connections_by_uid(uid_e);
-             }			 	         
-
-	         return 0;
-         }
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -2304,19 +2285,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		}
 		tp->rx_opt.user_mss = val;
 		break;
-		
-    case TCP_MAXRTO:
-		
-		if (val < 1 || val > TCP_RTO_MAX) {
-			err = -EINVAL;
-			break;
-		}
-		icsk->icsk_MaxRto= val * HZ;
 
-		printk(KERN_INFO "TCP:MaxRto %d\n",val);
-	       
-		break;
-		
 	case TCP_NODELAY:
 		if (val) {
 			/* TCP_NODELAY is weaker than TCP_CORK, so that
@@ -2419,7 +2388,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		/* Translate value in seconds to number of retransmits */
 		icsk->icsk_accept_queue.rskq_defer_accept =
 			secs_to_retrans(val, TCP_TIMEOUT_INIT / HZ,
-					(icsk->icsk_MaxRto ? icsk->icsk_MaxRto : TCP_RTO_MAX) / HZ);
+					TCP_RTO_MAX / HZ);
 		break;
 
 	case TCP_WINDOW_CLAMP:
@@ -2585,9 +2554,6 @@ static int do_tcp_getsockopt(struct sock *sk, int level,
 		if (!val && ((1 << sk->sk_state) & (TCPF_CLOSE | TCPF_LISTEN)))
 			val = tp->rx_opt.user_mss;
 		break;
-	case TCP_MAXRTO:
-		val = icsk->icsk_MaxRto / HZ;
-		break;	
 	case TCP_NODELAY:
 		val = !!(tp->nonagle&TCP_NAGLE_OFF);
 		break;
@@ -2613,7 +2579,7 @@ static int do_tcp_getsockopt(struct sock *sk, int level,
 		break;
 	case TCP_DEFER_ACCEPT:
 		val = retrans_to_secs(icsk->icsk_accept_queue.rskq_defer_accept,
-				      TCP_TIMEOUT_INIT / HZ, (icsk->icsk_MaxRto ? icsk->icsk_MaxRto : TCP_RTO_MAX) / HZ);
+				      TCP_TIMEOUT_INIT / HZ, TCP_RTO_MAX / HZ);
 		break;
 	case TCP_WINDOW_CLAMP:
 		val = tp->window_clamp;
@@ -3278,6 +3244,43 @@ void tcp_done(struct sock *sk)
 }
 EXPORT_SYMBOL_GPL(tcp_done);
 
+int tcp_abort(struct sock *sk, int err)
+{
+	if (sk->sk_state == TCP_TIME_WAIT) {
+		inet_twsk_put((struct inet_timewait_sock *)sk);
+		return -EOPNOTSUPP;
+	}
+
+	/* Don't race with userspace socket closes such as tcp_close. */
+	lock_sock(sk);
+
+	if (sk->sk_state == TCP_LISTEN) {
+		tcp_set_state(sk, TCP_CLOSE);
+		inet_csk_listen_stop(sk);
+	}
+
+	/* Don't race with BH socket closes such as inet_csk_listen_stop. */
+	local_bh_disable();
+	bh_lock_sock(sk);
+
+	if (!sock_flag(sk, SOCK_DEAD)) {
+		sk->sk_err = err;
+		/* This barrier is coupled with smp_rmb() in tcp_poll() */
+		smp_wmb();
+		sk->sk_error_report(sk);
+		if (tcp_need_reset(sk->sk_state))
+			tcp_send_active_reset(sk, GFP_ATOMIC);
+		tcp_done(sk);
+	}
+
+	bh_unlock_sock(sk);
+	local_bh_enable();
+	release_sock(sk);
+	sock_put(sk);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(tcp_abort);
+
 extern struct tcp_congestion_ops tcp_reno;
 
 static __initdata unsigned long thash_entries;
@@ -3392,16 +3395,26 @@ void __init tcp_init(void)
 static int tcp_is_local(struct net *net, __be32 addr) {
 	struct rtable *rt;
 	struct flowi4 fl4 = { .daddr = addr };
+	int is_local;
 	rt = ip_route_output_key(net, &fl4);
 	if (IS_ERR_OR_NULL(rt))
 		return 0;
-	return rt->dst.dev && (rt->dst.dev->flags & IFF_LOOPBACK);
+
+	is_local = rt->dst.dev && (rt->dst.dev->flags & IFF_LOOPBACK);
+	ip_rt_put(rt);
+	return is_local;
 }
 
 #if defined(CONFIG_IPV6) || defined(CONFIG_IPV6_MODULE)
 static int tcp_is_local6(struct net *net, struct in6_addr *addr) {
 	struct rt6_info *rt6 = rt6_lookup(net, addr, addr, 0, 0);
-	return rt6 && rt6->dst.dev && (rt6->dst.dev->flags & IFF_LOOPBACK);
+	int is_local;
+	if (rt6 == NULL)
+		return 0;
+
+	is_local = rt6->dst.dev && (rt6->dst.dev->flags & IFF_LOOPBACK);
+	dst_release(&rt6->dst);
+	return is_local;
 }
 #endif
 
@@ -3429,7 +3442,7 @@ int tcp_nuke_addr(struct net *net, struct sockaddr *addr)
 		return -EAFNOSUPPORT;
 	}
 
-	for (bucket = 0; bucket < tcp_hashinfo.ehash_mask; bucket++) {
+	for (bucket = 0; bucket <= tcp_hashinfo.ehash_mask; bucket++) {
 		struct hlist_nulls_node *node;
 		struct sock *sk;
 		spinlock_t *lock = inet_ehash_lockp(&tcp_hashinfo, bucket);

@@ -31,12 +31,6 @@
 #ifdef CONFIG_DEBUG_MUTEXES
 # include "mutex-debug.h"
 # include <asm-generic/mutex-null.h>
-
-#  ifndef CONFIG_LOCKDEP
-#   define CREATE_TRACE_POINTS
-#  endif
-# include <trace/events/lock.h>
-
 #else
 # include "mutex.h"
 # include <asm/mutex.h>
@@ -142,9 +136,6 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	struct task_struct *task = current;
 	struct mutex_waiter waiter;
 	unsigned long flags;
-#ifdef CONFIG_DEBUG_MUTEXES
-    unsigned char __mutex_contended = 0;
-#endif
 
 	preempt_disable();
 	mutex_acquire_nest(&lock->dep_map, subclass, 0, nest_lock, ip);
@@ -217,10 +208,6 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		goto done;
 
 	lock_contended(&lock->dep_map, ip);
-#ifdef CONFIG_DEBUG_MUTEXES
-    trace_mutex_contended(lock, ip);
-    __mutex_contended = 1; // to pair mutex_contended & mutex_acquired
-#endif
 
 	for (;;) {
 		/*
@@ -258,10 +245,6 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	}
 
 done:
-#ifdef CONFIG_DEBUG_MUTEXES
-    if(unlikely(__mutex_contended > 0))
-        trace_mutex_acquired(lock, ip);
-#endif
 	lock_acquired(&lock->dep_map, ip);
 	/* got the lock - rejoice! */
 	mutex_remove_waiter(lock, &waiter, current_thread_info());

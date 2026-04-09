@@ -9,7 +9,6 @@
 #include <linux/hugetlb.h>
 #include <linux/mman.h>
 #include <linux/slab.h>
-#include <linux/export.h>
 #include <linux/kernel_stat.h>
 #include <linux/swap.h>
 #include <linux/vmalloc.h>
@@ -32,7 +31,6 @@
 #include <linux/memcontrol.h>
 #include <linux/poll.h>
 #include <linux/oom.h>
-#include <linux/export.h>
 
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
@@ -42,6 +40,7 @@
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
+static sector_t map_swap_entry(swp_entry_t, struct block_device**);
 
 static DEFINE_SPINLOCK(swap_lock);
 static unsigned int nr_swapfiles;
@@ -472,58 +471,8 @@ swp_entry_t get_swap_page_of_type(int type)
 	spin_unlock(&swap_lock);
 	return (swp_entry_t) {0};
 }
-EXPORT_SYMBOL_GPL(get_swap_page_of_type);
 
-static unsigned int find_next_to_unuse(struct swap_info_struct *si,
-					unsigned int prev);
-
-void get_swap_range_of_type(int type, swp_entry_t *start, swp_entry_t *end,
-		unsigned int limit)
-{
-	struct swap_info_struct *si;
-	pgoff_t start_at;
-	unsigned int i;
-
-	*start = swp_entry(0, 0);
-	*end = swp_entry(0, 0);
-	spin_lock(&swap_lock);
-	si = swap_info[type];
-	if (si && (si->flags & SWP_WRITEOK)) {
-		/* This is called for allocating swap entry, not cache */
-		start_at = scan_swap_map(si, 1);
-		if (start_at) {
-			unsigned int stop_at = find_next_to_unuse(si, start_at);
-			if (stop_at > start_at)
-				stop_at--;
-			else
-				stop_at = si->max - 1;
-			if (stop_at - start_at + 1 > limit)
-				stop_at = min_t(unsigned int,
-						start_at + limit - 1,
-						si->max - 1);
-			/* Mark them used */
-			for (i = start_at; i <= stop_at; i++)
-				si->swap_map[i] = 1;
-			/* first page already done above */
-			si->inuse_pages += stop_at - start_at;
-
-			nr_swap_pages -= stop_at - start_at + 1;
-			if (start_at + 1 == si->lowest_bit)
-				si->lowest_bit = stop_at + 1;
-			if (si->inuse_pages == si->pages) {
-				si->lowest_bit = si->max;
-				si->highest_bit = 0;
-			}
-			si->cluster_next = stop_at + 1;
-			*start = swp_entry(type, start_at);
-			*end = swp_entry(type, stop_at);
-		}
-	}
-	spin_unlock(&swap_lock);
-}
-EXPORT_SYMBOL_GPL(get_swap_range_of_type);
-
-struct swap_info_struct *swap_info_get(swp_entry_t entry)
+static struct swap_info_struct *swap_info_get(swp_entry_t entry)
 {
 	struct swap_info_struct *p;
 	unsigned long offset, type;
@@ -557,11 +506,6 @@ bad_nofile:
 	printk(KERN_ERR "swap_free: %s%08lx\n", Bad_file, entry.val);
 out:
 	return NULL;
-}
-
-void swap_info_unlock(void)
-{
-        spin_unlock(&swap_lock);
 }
 
 static unsigned char swap_entry_free(struct swap_info_struct *p,
@@ -651,14 +595,13 @@ void swapcache_free(swp_entry_t entry, struct page *page)
 		spin_unlock(&swap_lock);
 	}
 }
-EXPORT_SYMBOL_GPL(swap_free);
 
 /*
  * How many references to page are currently swapped out?
  * This does not give an exact answer when swap count is continued,
  * but does include the high COUNT_CONTINUED flag to allow for that.
  */
-static inline int page_swapcount(struct page *page)
+int page_swapcount(struct page *page)
 {
 	int count = 0;
 	struct swap_info_struct *p;
@@ -670,6 +613,48 @@ static inline int page_swapcount(struct page *page)
 		count = swap_count(p->swap_map[swp_offset(entry)]);
 		spin_unlock(&swap_lock);
 	}
+	return count;
+}
+
+/*
+ * How many references to @entry are currently swapped out?
+ * This considers COUNT_CONTINUED so it returns exact answer.
+ */
+int swp_swapcount(swp_entry_t entry)
+{
+	int count, tmp_count, n;
+	struct swap_info_struct *p;
+	struct page *page;
+	pgoff_t offset;
+	unsigned char *map;
+
+	p = swap_info_get(entry);
+	if (!p)
+		return 0;
+
+	count = swap_count(p->swap_map[swp_offset(entry)]);
+	if (!(count & COUNT_CONTINUED))
+		goto out;
+
+	count &= ~COUNT_CONTINUED;
+	n = SWAP_MAP_MAX + 1;
+
+	offset = swp_offset(entry);
+	page = vmalloc_to_page(p->swap_map + offset);
+	offset &= ~PAGE_MASK;
+	VM_BUG_ON(page_private(page) != SWP_CONTINUED);
+
+	do {
+		page = list_entry(page->lru.next, struct page, lru);
+		map = kmap_atomic(page);
+		tmp_count = map[offset];
+		kunmap_atomic(map);
+
+		count += (tmp_count & ~COUNT_CONTINUED) * n;
+		n *= (SWAP_CONT_MAX + 1);
+	} while (tmp_count & COUNT_CONTINUED);
+out:
+	spin_unlock(&swap_lock);
 	return count;
 }
 
@@ -1347,7 +1332,7 @@ static void drain_mmlist(void)
  * Note that the type of this function is sector_t, but it returns page offset
  * into the bdev, not sector offset.
  */
-sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
+static sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
 {
 	struct swap_info_struct *sis;
 	struct swap_extent *start_se;
@@ -1374,7 +1359,6 @@ sector_t map_swap_entry(swp_entry_t entry, struct block_device **bdev)
 		BUG_ON(se == start_se);		/* It *must* be present */
 	}
 }
-EXPORT_SYMBOL_GPL(map_swap_entry);
 
 /*
  * Returns the page offset into bdev for the specified page's swap entry.
@@ -1619,14 +1603,7 @@ SYSCALL_DEFINE1(swapoff, const char __user *, specialfile)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-#ifdef CONFIG_TOI
-    // FIXME: Turn it off due to current->mm may be NULL in kernel space
-    //        by calling sys_swapoff(swapfilename) in disable_swapfile() @ tuxonice_swap.c
-    pr_warn("[HIB/SWAP] [%s] file(%s) current(%p/%d/%s) current->mm(%p)\n", __func__, specialfile, current, current->pid, current->comm, current->mm);
-    WARN_ON(!current->mm);
-#else
 	BUG_ON(!current->mm);
-#endif
 
 	pathname = getname(specialfile);
 	err = PTR_ERR(pathname);
@@ -1744,7 +1721,6 @@ out_dput:
 out:
 	return err;
 }
-EXPORT_SYMBOL_GPL(sys_swapoff);
 
 #ifdef CONFIG_PROC_FS
 static unsigned swaps_poll(struct file *file, poll_table *wait)
@@ -2226,7 +2202,6 @@ out:
 		mutex_unlock(&inode->i_mutex);
 	return error;
 }
-EXPORT_SYMBOL_GPL(sys_swapon);
 
 void si_swapinfo(struct sysinfo *val)
 {
@@ -2244,7 +2219,6 @@ void si_swapinfo(struct sysinfo *val)
 	val->totalswap = total_swap_pages + nr_to_be_unused;
 	spin_unlock(&swap_lock);
 }
-EXPORT_SYMBOL(si_swapinfo);
 
 /*
  * Verify that a swap entry is valid and increment its swap map count.
@@ -2356,13 +2330,6 @@ int swapcache_prepare(swp_entry_t entry)
 	return __swap_duplicate(entry, SWAP_HAS_CACHE);
 }
 
-
-struct swap_info_struct *get_swap_info_struct(unsigned type)
-{
-	return swap_info[type];
-}
-EXPORT_SYMBOL_GPL(get_swap_info_struct);
-
 /*
  * add_swap_count_continuation - called when a swap count is duplicated
  * beyond SWAP_MAP_MAX, it allocates a new page and links that to the entry's
@@ -2391,11 +2358,7 @@ int add_swap_count_continuation(swp_entry_t entry, gfp_t gfp_mask)
 	 * When debugging, it's easier to use __GFP_ZERO here; but it's better
 	 * for latency not to zero a page while GFP_ATOMIC and holding locks.
 	 */
-#ifndef CONFIG_MTK_PAGERECORDER
 	page = alloc_page(gfp_mask | __GFP_HIGHMEM);
-#else
-	page = alloc_page_nopagedebug(gfp_mask | __GFP_HIGHMEM);
-#endif
 
 	si = swap_info_get(entry);
 	if (!si) {

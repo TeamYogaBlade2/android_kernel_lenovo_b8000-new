@@ -131,16 +131,6 @@ MODULE_PARM_DESC(quirks, "supplemental list of device IDs and their quirks");
 	.initFunction = init_function,	\
 }
 
-#define HW_UNUSUAL_DEV(idVendor, cl, sc, pr, \
-vendor_name, product_name, use_protocol, use_transport, \
-init_function, Flags) \
-{ \
-.vendorName = vendor_name, \
-.productName = product_name, \
-.useProtocol = use_protocol, \
-.useTransport = use_transport, \
-.initFunction = init_function, \
-}
 static struct us_unusual_dev us_unusual_dev_list[] = {
 #	include "unusual_devs.h" 
 	{ }		/* Terminating entry */
@@ -151,7 +141,6 @@ static struct us_unusual_dev for_dynamic_ids =
 
 #undef UNUSUAL_DEV
 #undef COMPLIANT_DEV
-#undef HW_UNUSUAL_DEV
 #undef USUAL_DEV
 #undef UNUSUAL_VENDOR_INTF
 
@@ -1145,9 +1134,6 @@ static void __exit usb_stor_exit(void)
 
 	usb_usual_clear_present(USB_US_TYPE_STOR);
 }
-
-bool usb_storage_debug = false;
-module_param(usb_storage_debug, bool, 0644);
 
 module_init(usb_stor_init);
 module_exit(usb_stor_exit);

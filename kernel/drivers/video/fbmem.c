@@ -1065,7 +1065,7 @@ fb_blank(struct fb_info *info, int blank)
  	return ret;
 }
 
-static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cmd,
+static long do_fb_ioctl(struct fb_info *info, unsigned int cmd,
 			unsigned long arg)
 {
 	struct fb_ops *fb;
@@ -1077,7 +1077,6 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 	struct fb_event event;
 	void __user *argp = (void __user *)arg;
 	long ret = 0;
-	long package[2];
 
 	switch (cmd) {
 	case FBIOGET_VSCREENINFO:
@@ -1093,15 +1092,11 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 			return -EFAULT;
 		if (!lock_fb_info(info))
 			return -ENODEV;
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_lock();
-#endif
 		info->flags |= FBINFO_MISC_USEREVENT;
 		ret = fb_set_var(info, &var);
 		info->flags &= ~FBINFO_MISC_USEREVENT;
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_unlock();
-#endif
 		unlock_fb_info(info);
 		if (!ret && copy_to_user(argp, &var, sizeof(var)))
 			ret = -EFAULT;
@@ -1133,13 +1128,9 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 			return -EFAULT;
 		if (!lock_fb_info(info))
 			return -ENODEV;
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_lock();
-#endif
 		ret = fb_pan_display(info, &var);
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_unlock();
-#endif
 		unlock_fb_info(info);
 		if (ret == 0 && copy_to_user(argp, &var, sizeof(var)))
 			return -EFAULT;
@@ -1186,15 +1177,11 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 	case FBIOBLANK:
 		if (!lock_fb_info(info))
 			return -ENODEV;
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_lock();
-#endif
 		info->flags |= FBINFO_MISC_USEREVENT;
 		ret = fb_blank(info, arg);
 		info->flags &= ~FBINFO_MISC_USEREVENT;
-#if defined(CONFIG_FRAMEBUFFER_CONSOLE)
 		console_unlock();
-#endif
 		unlock_fb_info(info);
 		break;
 	default:
@@ -1202,7 +1189,7 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 			return -ENODEV;
 		fb = info->fbops;
 		if (fb->fb_ioctl)
-			ret = fb->fb_ioctl(file, info, cmd, arg);
+			ret = fb->fb_ioctl(info, cmd, arg);
 		else
 			ret = -ENOTTY;
 		unlock_fb_info(info);
@@ -1212,16 +1199,11 @@ static long do_fb_ioctl(struct file *file, struct fb_info *info, unsigned int cm
 
 static long fb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	int ret = 0;
 	struct fb_info *info = file_fb_info(file);
 
-	if (!info) {
-		ret = -ENODEV;
-	} else {
-		ret = do_fb_ioctl(file, info, cmd, arg);
-	}
-
-	return ret;
+	if (!info)
+		return -ENODEV;
+	return do_fb_ioctl(info, cmd, arg);
 }
 
 #ifdef CONFIG_COMPAT
@@ -1275,7 +1257,7 @@ static int fb_getput_cmap(struct fb_info *info, unsigned int cmd,
 	    put_user(compat_ptr(data), &cmap->transp))
 		return -EFAULT;
 
-	err = do_fb_ioctl(NULL, info, cmd, (unsigned long) cmap);
+	err = do_fb_ioctl(info, cmd, (unsigned long) cmap);
 
 	if (!err) {
 		if (copy_in_user(&cmap32->start,
@@ -1329,7 +1311,7 @@ static int fb_get_fscreeninfo(struct fb_info *info, unsigned int cmd,
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
-	err = do_fb_ioctl(NULL, info, cmd, (unsigned long) &fix);
+	err = do_fb_ioctl(info, cmd, (unsigned long) &fix);
 	set_fs(old_fs);
 
 	if (!err)
@@ -1356,7 +1338,7 @@ static long fb_compat_ioctl(struct file *file, unsigned int cmd,
 	case FBIOPUT_CON2FBMAP:
 		arg = (unsigned long) compat_ptr(arg);
 	case FBIOBLANK:
-		ret = do_fb_ioctl(file, info, cmd, arg);
+		ret = do_fb_ioctl(info, cmd, arg);
 		break;
 
 	case FBIOGET_FSCREENINFO:

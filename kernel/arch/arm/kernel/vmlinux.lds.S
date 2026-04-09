@@ -111,19 +111,6 @@ SECTIONS
 		*(.got)			/* Global offset table		*/
 			ARM_CPU_KEEP(PROC_INFO)
 	}
-	_sram_start = .;
-
-	.sram_start 0xF9000000 :  AT(_sram_start){
-                . = ALIGN(4);
-                __ssram_text = .;
-                *(.sram.func)
-                . = ALIGN(4);
-                __esram_text = .;
-        }
-
-	. = ADDR(.text) + SIZEOF(.text) + SIZEOF(.sram_start);
-	_sram_end = .;
-
 
 	RO_DATA(PAGE_SIZE)
 
@@ -150,6 +137,23 @@ SECTIONS
 	. = ALIGN(PAGE_SIZE);
 	__init_begin = .;
 #endif
+	/*
+	 * The vectors and stubs are relocatable code, and the
+	 * only thing that matters is their relative offsets
+	 */
+	__vectors_start = .;
+	.vectors 0 : AT(__vectors_start) {
+		*(.vectors)
+	}
+	. = __vectors_start + SIZEOF(.vectors);
+	__vectors_end = .;
+
+	__stubs_start = .;
+	.stubs 0x1000 : AT(__stubs_start) {
+		*(.stubs)
+	}
+	. = __stubs_start + SIZEOF(.stubs);
+	__stubs_end = .;
 
 	INIT_TEXT_SECTION(8)
 	.exit.text : {

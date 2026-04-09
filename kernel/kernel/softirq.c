@@ -25,8 +25,6 @@
 #include <linux/smp.h>
 #include <linux/tick.h>
 
-#include <linux/rtpm_prio.h>
-#include <linux/mt_sched_mon.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
 
@@ -237,9 +235,7 @@ restart:
 			kstat_incr_softirqs_this_cpu(vec_nr);
 
 			trace_softirq_entry(vec_nr);
-            mt_trace_SoftIRQ_start(vec_nr);
 			h->action(h);
-            mt_trace_SoftIRQ_end(vec_nr);
 			trace_softirq_exit(vec_nr);
 			if (unlikely(prev_count != preempt_count())) {
 				printk(KERN_ERR "huh, entered softirq %u %s %p"
@@ -460,9 +456,7 @@ static void tasklet_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
-                mt_trace_tasklet_start(t->func);
-                t->func(t->data);
-                mt_trace_tasklet_end(t->func);
+				t->func(t->data);
 				tasklet_unlock(t);
 				continue;
 			}
@@ -497,10 +491,7 @@ static void tasklet_hi_action(struct softirq_action *a)
 			if (!atomic_read(&t->count)) {
 				if (!test_and_clear_bit(TASKLET_STATE_SCHED, &t->state))
 					BUG();
-                //mt_trace_hitasklet_start(t->func);
-                t->func(t->data);
-                //mt_trace_hitasklet_end(t->func);
-
+				t->func(t->data);
 				tasklet_unlock(t);
 				continue;
 			}
@@ -881,13 +872,12 @@ static int __cpuinit cpu_callback(struct notifier_block *nfb,
 			     cpumask_any(cpu_online_mask));
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN: {
-		static struct sched_param param = {
+		static const struct sched_param param = {
 			.sched_priority = MAX_RT_PRIO-1
 		};
 
 		p = per_cpu(ksoftirqd, hotcpu);
 		per_cpu(ksoftirqd, hotcpu) = NULL;
-        param.sched_priority = RTPM_PRIO_CPU_CALLBACK;//MAX_RT_PRIO - 1, for rt check
 		sched_setscheduler_nocheck(p, SCHED_FIFO, &param);
 		kthread_stop(p);
 		takeover_tasklets(hotcpu);

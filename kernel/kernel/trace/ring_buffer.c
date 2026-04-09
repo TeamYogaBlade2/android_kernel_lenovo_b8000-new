@@ -23,10 +23,6 @@
 #include <asm/local.h>
 #include "trace.h"
 
-#ifdef CONFIG_MTK_EXTMEM
-extern void* extmem_malloc_page_align(size_t bytes);
-extern void extmem_free(void* mem);
-#endif
 /*
  * The ring buffer header is special. We must manually up keep it.
  */
@@ -393,11 +389,7 @@ size_t ring_buffer_page_len(void *page)
  */
 static void free_buffer_page(struct buffer_page *bpage)
 {
-#ifdef CONFIG_MTK_EXTMEM
-	extmem_free((void*) bpage->page);	 
-#else
 	free_page((unsigned long)bpage->page);
-#endif
 	kfree(bpage);
 }
 
@@ -457,7 +449,6 @@ struct ring_buffer_per_cpu {
 	raw_spinlock_t			reader_lock;	/* serialize readers */
 	arch_spinlock_t			lock;
 	struct lock_class_key		lock_key;
-	unsigned int			nr_pages;
 	struct list_head		*pages;
 	struct buffer_page		*head_page;	/* read from head */
 	struct buffer_page		*tail_page;	/* write to tail */
@@ -475,12 +466,10 @@ struct ring_buffer_per_cpu {
 	unsigned long			read_bytes;
 	u64				write_stamp;
 	u64				read_stamp;
-	/* ring buffer pages to update, > 0 to add, < 0 to remove */
-	int				nr_pages_to_update;
-	struct list_head		new_pages; /* new pages to add */
 };
 
 struct ring_buffer {
+	unsigned			pages;
 	unsigned			flags;
 	int				cpus;
 	atomic_t			record_disabled;
@@ -974,15 +963,17 @@ static int rb_check_pages(struct ring_buffer_per_cpu *cpu_buffer)
 	return 0;
 }
 
-static int __rb_allocate_pages(int nr_pages, struct list_head *pages, int cpu)
+static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
+			     unsigned nr_pages)
 {
-	int i;
 	struct buffer_page *bpage, *tmp;
+	LIST_HEAD(pages);
+	unsigned i;
+
+	WARN_ON(!nr_pages);
 
 	for (i = 0; i < nr_pages; i++) {
-#ifndef CONFIG_MTK_EXTMEM
 		struct page *page;
-#endif
 		/*
 		 * __GFP_NORETRY flag makes sure that the allocation fails
 		 * gracefully without invoking oom-killer and the system is
@@ -990,45 +981,21 @@ static int __rb_allocate_pages(int nr_pages, struct list_head *pages, int cpu)
 		 */
 		bpage = kzalloc_node(ALIGN(sizeof(*bpage), cache_line_size()),
 				    GFP_KERNEL | __GFP_NORETRY,
-				    cpu_to_node(cpu));
+				    cpu_to_node(cpu_buffer->cpu));
 		if (!bpage)
 			goto free_pages;
 
-		list_add(&bpage->list, pages);
-#ifdef CONFIG_MTK_EXTMEM
-		bpage->page = extmem_malloc_page_align(PAGE_SIZE);
-    		if(bpage->page == NULL)
-    			goto free_pages;
-#else
-    		page = alloc_pages_node(cpu_to_node(cpu),
-    				GFP_KERNEL | __GFP_NORETRY, 0);
-    		if (!page)
-    			goto free_pages;
-    		bpage->page = page_address(page);
-#endif	
+		rb_check_bpage(cpu_buffer, bpage);
+
+		list_add(&bpage->list, &pages);
+
+		page = alloc_pages_node(cpu_to_node(cpu_buffer->cpu),
+					GFP_KERNEL | __GFP_NORETRY, 0);
+		if (!page)
+			goto free_pages;
+		bpage->page = page_address(page);
 		rb_init_page(bpage->page);
 	}
-
-	return 0;
-
-free_pages:
-	list_for_each_entry_safe(bpage, tmp, pages, list) {
-		list_del_init(&bpage->list);
-		free_buffer_page(bpage);
-	}
-
-	return -ENOMEM;
-}
-
-static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
-			     unsigned nr_pages)
-{
-	LIST_HEAD(pages);
-
-	WARN_ON(!nr_pages);
-
-	if (__rb_allocate_pages(nr_pages, &pages, cpu_buffer->cpu))
-		return -ENOMEM;
 
 	/*
 	 * The ring buffer page list is a circular list that does not
@@ -1038,21 +1005,24 @@ static int rb_allocate_pages(struct ring_buffer_per_cpu *cpu_buffer,
 	cpu_buffer->pages = pages.next;
 	list_del(&pages);
 
-	cpu_buffer->nr_pages = nr_pages;
-
 	rb_check_pages(cpu_buffer);
 
 	return 0;
+
+ free_pages:
+	list_for_each_entry_safe(bpage, tmp, &pages, list) {
+		list_del_init(&bpage->list);
+		free_buffer_page(bpage);
+	}
+	return -ENOMEM;
 }
 
 static struct ring_buffer_per_cpu *
-rb_allocate_cpu_buffer(struct ring_buffer *buffer, int nr_pages, int cpu)
+rb_allocate_cpu_buffer(struct ring_buffer *buffer, int cpu)
 {
 	struct ring_buffer_per_cpu *cpu_buffer;
 	struct buffer_page *bpage;
-#ifndef CONFIG_MTK_EXTMEM
 	struct page *page;
-#endif
 	int ret;
 
 	cpu_buffer = kzalloc_node(ALIGN(sizeof(*cpu_buffer), cache_line_size()),
@@ -1074,22 +1044,15 @@ rb_allocate_cpu_buffer(struct ring_buffer *buffer, int nr_pages, int cpu)
 	rb_check_bpage(cpu_buffer, bpage);
 
 	cpu_buffer->reader_page = bpage;
-	
-#ifdef CONFIG_MTK_EXTMEM
-	bpage->page = extmem_malloc_page_align(PAGE_SIZE);
-	if(bpage->page == NULL)
-	    goto fail_free_reader;
-#else
 	page = alloc_pages_node(cpu_to_node(cpu), GFP_KERNEL, 0);
 	if (!page)
 		goto fail_free_reader;
 	bpage->page = page_address(page);
-#endif	
 	rb_init_page(bpage->page);
 
 	INIT_LIST_HEAD(&cpu_buffer->reader_page->list);
 
-	ret = rb_allocate_pages(cpu_buffer, nr_pages);
+	ret = rb_allocate_pages(cpu_buffer, buffer->pages);
 	if (ret < 0)
 		goto fail_free_reader;
 
@@ -1150,7 +1113,7 @@ struct ring_buffer *__ring_buffer_alloc(unsigned long size, unsigned flags,
 {
 	struct ring_buffer *buffer;
 	int bsize;
-	int cpu, nr_pages;
+	int cpu;
 
 	/* keep it in its own cache line */
 	buffer = kzalloc(ALIGN(sizeof(*buffer), cache_line_size()),
@@ -1161,14 +1124,14 @@ struct ring_buffer *__ring_buffer_alloc(unsigned long size, unsigned flags,
 	if (!alloc_cpumask_var(&buffer->cpumask, GFP_KERNEL))
 		goto fail_free_buffer;
 
-	nr_pages = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
+	buffer->pages = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
 	buffer->flags = flags;
 	buffer->clock = trace_clock_local;
 	buffer->reader_lock_key = key;
 
 	/* need at least two pages */
-	if (nr_pages < 2)
-		nr_pages = 2;
+	if (buffer->pages < 2)
+		buffer->pages = 2;
 
 	/*
 	 * In case of non-hotplug cpu, if the ring-buffer is allocated
@@ -1191,7 +1154,7 @@ struct ring_buffer *__ring_buffer_alloc(unsigned long size, unsigned flags,
 
 	for_each_buffer_cpu(buffer, cpu) {
 		buffer->buffers[cpu] =
-			rb_allocate_cpu_buffer(buffer, nr_pages, cpu);
+			rb_allocate_cpu_buffer(buffer, cpu);
 		if (!buffer->buffers[cpu])
 			goto fail_free_buffers;
 	}
@@ -1313,18 +1276,6 @@ out:
 	raw_spin_unlock_irq(&cpu_buffer->reader_lock);
 }
 
-static void update_pages_handler(struct ring_buffer_per_cpu *cpu_buffer)
-{
-	if (cpu_buffer->nr_pages_to_update > 0)
-		rb_insert_pages(cpu_buffer, &cpu_buffer->new_pages,
-				cpu_buffer->nr_pages_to_update);
-	else
-		rb_remove_pages(cpu_buffer, -cpu_buffer->nr_pages_to_update);
-	cpu_buffer->nr_pages += cpu_buffer->nr_pages_to_update;
-	/* reset this value */
-	cpu_buffer->nr_pages_to_update = 0;
-}
-
 /**
  * ring_buffer_resize - resize the ring buffer
  * @buffer: the buffer to resize.
@@ -1334,12 +1285,14 @@ static void update_pages_handler(struct ring_buffer_per_cpu *cpu_buffer)
  *
  * Returns -1 on failure.
  */
-int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
-			int cpu_id)
+int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size)
 {
 	struct ring_buffer_per_cpu *cpu_buffer;
-	unsigned nr_pages;
-	int cpu;
+	unsigned nr_pages, rm_pages, new_pages;
+	struct buffer_page *bpage, *tmp;
+	unsigned long buffer_size;
+	LIST_HEAD(pages);
+	int i, cpu;
 
 	/*
 	 * Always succeed at resizing a non-existent buffer:
@@ -1349,10 +1302,14 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
 
 	size = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
 	size *= BUF_PAGE_SIZE;
+	buffer_size = buffer->pages * BUF_PAGE_SIZE;
 
 	/* we need a minimum of two pages */
 	if (size < BUF_PAGE_SIZE * 2)
 		size = BUF_PAGE_SIZE * 2;
+
+	if (size == buffer_size)
+		return size;
 
 	atomic_inc(&buffer->record_disabled);
 
@@ -1364,56 +1321,68 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
 
 	nr_pages = DIV_ROUND_UP(size, BUF_PAGE_SIZE);
 
-	if (cpu_id == RING_BUFFER_ALL_CPUS) {
-		/* calculate the pages to update */
+	if (size < buffer_size) {
+
+		/* easy case, just free pages */
+		if (RB_WARN_ON(buffer, nr_pages >= buffer->pages))
+			goto out_fail;
+
+		rm_pages = buffer->pages - nr_pages;
+
 		for_each_buffer_cpu(buffer, cpu) {
 			cpu_buffer = buffer->buffers[cpu];
-
-			cpu_buffer->nr_pages_to_update = nr_pages -
-							cpu_buffer->nr_pages;
-
-			/*
-			 * nothing more to do for removing pages or no update
-			 */
-			if (cpu_buffer->nr_pages_to_update <= 0)
-				continue;
-
-			/*
-			 * to add pages, make sure all new pages can be
-			 * allocated without receiving ENOMEM
-			 */
-			INIT_LIST_HEAD(&cpu_buffer->new_pages);
-			if (__rb_allocate_pages(cpu_buffer->nr_pages_to_update,
-						&cpu_buffer->new_pages, cpu))
-				/* not enough memory for new pages */
-				goto no_mem;
+			rb_remove_pages(cpu_buffer, rm_pages);
 		}
-
-		/* wait for all the updates to complete */
-		for_each_buffer_cpu(buffer, cpu) {
-			cpu_buffer = buffer->buffers[cpu];
-			if (cpu_buffer->nr_pages_to_update) {
-				update_pages_handler(cpu_buffer);
-			}
-		}
-	} else {
-		cpu_buffer = buffer->buffers[cpu_id];
-		if (nr_pages == cpu_buffer->nr_pages)
-			goto out;
-
-		cpu_buffer->nr_pages_to_update = nr_pages -
-						cpu_buffer->nr_pages;
-
-		INIT_LIST_HEAD(&cpu_buffer->new_pages);
-		if (cpu_buffer->nr_pages_to_update > 0 &&
-			__rb_allocate_pages(cpu_buffer->nr_pages_to_update,
-						&cpu_buffer->new_pages, cpu_id))
-			goto no_mem;
-
-		update_pages_handler(cpu_buffer);
+		goto out;
 	}
 
+	/*
+	 * This is a bit more difficult. We only want to add pages
+	 * when we can allocate enough for all CPUs. We do this
+	 * by allocating all the pages and storing them on a local
+	 * link list. If we succeed in our allocation, then we
+	 * add these pages to the cpu_buffers. Otherwise we just free
+	 * them all and return -ENOMEM;
+	 */
+	if (RB_WARN_ON(buffer, nr_pages <= buffer->pages))
+		goto out_fail;
+
+	new_pages = nr_pages - buffer->pages;
+
+	for_each_buffer_cpu(buffer, cpu) {
+		for (i = 0; i < new_pages; i++) {
+			struct page *page;
+			/*
+			 * __GFP_NORETRY flag makes sure that the allocation
+			 * fails gracefully without invoking oom-killer and
+			 * the system is not destabilized.
+			 */
+			bpage = kzalloc_node(ALIGN(sizeof(*bpage),
+						  cache_line_size()),
+					    GFP_KERNEL | __GFP_NORETRY,
+					    cpu_to_node(cpu));
+			if (!bpage)
+				goto free_pages;
+			list_add(&bpage->list, &pages);
+			page = alloc_pages_node(cpu_to_node(cpu),
+						GFP_KERNEL | __GFP_NORETRY, 0);
+			if (!page)
+				goto free_pages;
+			bpage->page = page_address(page);
+			rb_init_page(bpage->page);
+		}
+	}
+
+	for_each_buffer_cpu(buffer, cpu) {
+		cpu_buffer = buffer->buffers[cpu];
+		rb_insert_pages(cpu_buffer, &pages, new_pages);
+	}
+
+	if (RB_WARN_ON(buffer, !list_empty(&pages)))
+		goto out_fail;
+
  out:
+	buffer->pages = nr_pages;
 	put_online_cpus();
 	mutex_unlock(&buffer->mutex);
 
@@ -1421,24 +1390,25 @@ int ring_buffer_resize(struct ring_buffer *buffer, unsigned long size,
 
 	return size;
 
- no_mem:
-	for_each_buffer_cpu(buffer, cpu) {
-		struct buffer_page *bpage, *tmp;
-		cpu_buffer = buffer->buffers[cpu];
-		/* reset this number regardless */
-		cpu_buffer->nr_pages_to_update = 0;
-		if (list_empty(&cpu_buffer->new_pages))
-			continue;
-		list_for_each_entry_safe(bpage, tmp, &cpu_buffer->new_pages,
-					list) {
-			list_del_init(&bpage->list);
-			free_buffer_page(bpage);
-		}
+ free_pages:
+	list_for_each_entry_safe(bpage, tmp, &pages, list) {
+		list_del_init(&bpage->list);
+		free_buffer_page(bpage);
 	}
 	put_online_cpus();
 	mutex_unlock(&buffer->mutex);
 	atomic_dec(&buffer->record_disabled);
 	return -ENOMEM;
+
+	/*
+	 * Something went totally wrong, and we are too paranoid
+	 * to even clean up the mess.
+	 */
+ out_fail:
+	put_online_cpus();
+	mutex_unlock(&buffer->mutex);
+	atomic_dec(&buffer->record_disabled);
+	return -1;
 }
 EXPORT_SYMBOL_GPL(ring_buffer_resize);
 
@@ -1540,7 +1510,7 @@ rb_set_commit_to_write(struct ring_buffer_per_cpu *cpu_buffer)
 	 * assign the commit to the tail.
 	 */
  again:
-	max_count = cpu_buffer->nr_pages * 100;
+	max_count = cpu_buffer->buffer->pages * 100;
 
 	while (cpu_buffer->commit_page != cpu_buffer->tail_page) {
 		if (RB_WARN_ON(cpu_buffer, !(--max_count)))
@@ -3621,18 +3591,9 @@ EXPORT_SYMBOL_GPL(ring_buffer_read);
  * ring_buffer_size - return the size of the ring buffer (in bytes)
  * @buffer: The ring buffer.
  */
-unsigned long ring_buffer_size(struct ring_buffer *buffer, int cpu)
+unsigned long ring_buffer_size(struct ring_buffer *buffer)
 {
-	/*
-	 * Earlier, this method returned
-	 *	BUF_PAGE_SIZE * buffer->nr_pages
-	 * Since the nr_pages field is now removed, we have converted this to
-	 * return the per cpu buffer value.
-	 */
-	if (!cpumask_test_cpu(cpu, buffer->cpumask))
-		return 0;
-
-	return BUF_PAGE_SIZE * buffer->buffers[cpu]->nr_pages;
+	return BUF_PAGE_SIZE * buffer->pages;
 }
 EXPORT_SYMBOL_GPL(ring_buffer_size);
 
@@ -3807,11 +3768,8 @@ int ring_buffer_swap_cpu(struct ring_buffer *buffer_a,
 	    !cpumask_test_cpu(cpu, buffer_b->cpumask))
 		goto out;
 
-	cpu_buffer_a = buffer_a->buffers[cpu];
-	cpu_buffer_b = buffer_b->buffers[cpu];
-
 	/* At least make sure the two buffers are somewhat the same */
-	if (cpu_buffer_a->nr_pages != cpu_buffer_b->nr_pages)
+	if (buffer_a->pages != buffer_b->pages)
 		goto out;
 
 	ret = -EAGAIN;
@@ -3824,6 +3782,9 @@ int ring_buffer_swap_cpu(struct ring_buffer *buffer_a,
 
 	if (atomic_read(&buffer_b->record_disabled))
 		goto out;
+
+	cpu_buffer_a = buffer_a->buffers[cpu];
+	cpu_buffer_b = buffer_b->buffers[cpu];
 
 	if (atomic_read(&cpu_buffer_a->record_disabled))
 		goto out;
@@ -4113,8 +4074,6 @@ static int rb_cpu_notify(struct notifier_block *self,
 	struct ring_buffer *buffer =
 		container_of(self, struct ring_buffer, cpu_notify);
 	long cpu = (long)hcpu;
-	int cpu_i, nr_pages_same;
-	unsigned int nr_pages;
 
 	switch (action) {
 	case CPU_UP_PREPARE:
@@ -4122,23 +4081,8 @@ static int rb_cpu_notify(struct notifier_block *self,
 		if (cpumask_test_cpu(cpu, buffer->cpumask))
 			return NOTIFY_OK;
 
-		nr_pages = 0;
-		nr_pages_same = 1;
-		/* check if all cpu sizes are same */
-		for_each_buffer_cpu(buffer, cpu_i) {
-			/* fill in the size from first enabled cpu */
-			if (nr_pages == 0)
-				nr_pages = buffer->buffers[cpu_i]->nr_pages;
-			if (nr_pages != buffer->buffers[cpu_i]->nr_pages) {
-				nr_pages_same = 0;
-				break;
-			}
-		}
-		/* allocate minimum pages, user can later expand it */
-		if (!nr_pages_same)
-			nr_pages = 2;
 		buffer->buffers[cpu] =
-			rb_allocate_cpu_buffer(buffer, nr_pages, cpu);
+			rb_allocate_cpu_buffer(buffer, cpu);
 		if (!buffer->buffers[cpu]) {
 			WARN(1, "failed to allocate ring buffer on CPU %ld\n",
 			     cpu);

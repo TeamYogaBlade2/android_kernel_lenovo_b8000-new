@@ -59,11 +59,6 @@
 #include <asm/pgtable.h>
 #include <asm/mmu_context.h>
 
-#include <mtlbprof/mtlbprof.h>
-#ifdef CONFIG_MT_PRIO_TRACER
- #include <linux/prio_tracer.h>
-#endif
-
 static void exit_mm(struct task_struct * tsk);
 
 static void __unhash_process(struct task_struct *p, bool group_dead)
@@ -79,6 +74,7 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		__this_cpu_dec(process_counts);
 	}
 	list_del_rcu(&p->thread_group);
+	list_del_rcu(&p->thread_node);
 }
 
 /*
@@ -648,11 +644,6 @@ static void exit_mm(struct task_struct * tsk)
 	mm_release(tsk, mm);
 	if (!mm)
 		return;
-        /*
-         * kernel patch
-         * commit: 21017faf87a93117ca7a14aa8f0dd2f315fdeb08
-         * https://android.googlesource.com/kernel/common/+/21017faf87a93117ca7a14aa8f0dd2f315fdeb08%5E!/#F0
-         */
 	sync_mm_rss(mm);
 	/*
 	 * Serialize with any possible pending coredump.
@@ -906,26 +897,12 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
-#ifdef CONFIG_SCHEDSTATS
-/* mt shceduler profiling*/
-extern void end_mtproc_info(struct task_struct *p);
-#endif
-
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
 
 	profile_task_exit(tsk);
-#ifdef CONFIG_SCHEDSTATS
-	/* mt shceduler profiling*/
-	printk(KERN_DEBUG "[%d:%s] exit\n", tsk->pid, tsk->comm);
-	end_mtproc_info(tsk);
-#endif
-
-#ifdef CONFIG_MT_PRIO_TRACER
-	delete_prio_tracer(tsk->pid);
-#endif
 
 	WARN_ON(blk_needs_flush_plug(tsk));
 
@@ -971,13 +948,10 @@ void do_exit(long code)
 	exit_signals(tsk);  /* sets PF_EXITING */
 	/*
 	 * tsk->flags are checked in the futex code to protect against
-     * an exiting task cleaning up the robust pi futexes, and in
-     * task_work_add() to avoid the race with exit_task_work().
+	 * an exiting task cleaning up the robust pi futexes.
 	 */
 	smp_mb();
 	raw_spin_unlock_wait(&tsk->pi_lock);
-
-    exit_task_work(tsk);
 
 	exit_irq_thread();
 

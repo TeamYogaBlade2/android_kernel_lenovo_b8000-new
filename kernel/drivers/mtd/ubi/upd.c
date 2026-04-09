@@ -158,7 +158,7 @@ int ubi_start_update(struct ubi_device *ubi, struct ubi_volume *vol,
 		return 0;
 	}
 
-	vol->upd_buf = kmalloc(ubi->leb_size, GFP_KERNEL);
+	vol->upd_buf = vmalloc(ubi->leb_size);
 	if (!vol->upd_buf)
 		return -ENOMEM;
 
@@ -186,14 +186,16 @@ int ubi_start_leb_change(struct ubi_device *ubi, struct ubi_volume *vol,
 	dbg_gen("start changing LEB %d:%d, %u bytes",
 		vol->vol_id, req->lnum, req->bytes);
 	if (req->bytes == 0)
-		return ubi_eba_atomic_leb_change(ubi, vol, req->lnum, NULL, 0);
+		return ubi_eba_atomic_leb_change(ubi, vol, req->lnum, NULL, 0,
+						 req->dtype);
 
 	vol->upd_bytes = req->bytes;
 	vol->upd_received = 0;
 	vol->changing_leb = 1;
 	vol->ch_lnum = req->lnum;
+	vol->ch_dtype = req->dtype;
 
-	vol->upd_buf = kmalloc(req->bytes, GFP_KERNEL);
+	vol->upd_buf = vmalloc(req->bytes);
 	if (!vol->upd_buf)
 		return -ENOMEM;
 
@@ -244,7 +246,8 @@ static int write_leb(struct ubi_device *ubi, struct ubi_volume *vol, int lnum,
 			return 0;
 		}
 
-		err = ubi_eba_write_leb(ubi, vol, lnum, buf, 0, len);
+		err = ubi_eba_write_leb(ubi, vol, lnum, buf, 0, len,
+					UBI_UNKNOWN);
 	} else {
 		/*
 		 * When writing static volume, and this is the last logical
@@ -256,7 +259,8 @@ static int write_leb(struct ubi_device *ubi, struct ubi_volume *vol, int lnum,
 		 * contain zeros, not random trash.
 		 */
 		memset(buf + len, 0, vol->usable_leb_size - len);
-		err = ubi_eba_write_leb_st(ubi, vol, lnum, buf, len, used_ebs);
+		err = ubi_eba_write_leb_st(ubi, vol, lnum, buf, len,
+					   UBI_UNKNOWN, used_ebs);
 	}
 
 	return err;
@@ -370,7 +374,7 @@ int ubi_more_update_data(struct ubi_device *ubi, struct ubi_volume *vol,
 			return err;
 		vol->updating = 0;
 		err = to_write;
-		kfree(vol->upd_buf);
+		vfree(vol->upd_buf);
 	}
 
 	return err;
@@ -417,7 +421,7 @@ int ubi_more_leb_change_data(struct ubi_device *ubi, struct ubi_volume *vol,
 		       len - vol->upd_bytes);
 		len = ubi_calc_data_len(ubi, vol->upd_buf, len);
 		err = ubi_eba_atomic_leb_change(ubi, vol, vol->ch_lnum,
-						vol->upd_buf, len);
+						vol->upd_buf, len, UBI_UNKNOWN);
 		if (err)
 			return err;
 	}
@@ -426,7 +430,7 @@ int ubi_more_leb_change_data(struct ubi_device *ubi, struct ubi_volume *vol,
 	if (vol->upd_received == vol->upd_bytes) {
 		vol->changing_leb = 0;
 		err = count;
-		kfree(vol->upd_buf);
+		vfree(vol->upd_buf);
 	}
 
 	return err;

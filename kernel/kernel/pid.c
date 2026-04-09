@@ -78,6 +78,7 @@ struct pid_namespace init_pid_ns = {
 	.last_pid = 0,
 	.level = 0,
 	.child_reaper = &init_task,
+	.proc_inum = PROC_PID_INIT_INO,
 };
 EXPORT_SYMBOL_GPL(init_pid_ns);
 
@@ -425,7 +426,6 @@ struct task_struct *find_task_by_pid_ns(pid_t nr, struct pid_namespace *ns)
 			   " protection");
 	return pid_task(find_pid_ns(nr, ns), PIDTYPE_PID);
 }
-EXPORT_SYMBOL_GPL(find_task_by_pid_ns);
 
 struct task_struct *find_task_by_vpid(pid_t vnr)
 {

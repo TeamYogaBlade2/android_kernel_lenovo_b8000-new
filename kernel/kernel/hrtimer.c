@@ -51,7 +51,6 @@
 
 #include <trace/events/timer.h>
 
-#include <linux/mt_sched_mon.h>
 /*
  * The timer bases:
  *
@@ -1237,9 +1236,7 @@ static void __run_hrtimer(struct hrtimer *timer, ktime_t *now)
 	 */
 	raw_spin_unlock(&cpu_base->lock);
 	trace_hrtimer_expire_entry(timer, now);
-    mt_trace_hrt_start(fn);
 	restart = fn(timer);
-    mt_trace_hrt_end(fn);
 	trace_hrtimer_expire_exit(timer);
 	raw_spin_lock(&cpu_base->lock);
 

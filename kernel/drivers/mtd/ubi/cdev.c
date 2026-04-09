@@ -138,13 +138,13 @@ static int vol_cdev_release(struct inode *inode, struct file *file)
 			 vol->vol_id);
 		ubi_assert(!vol->changing_leb);
 		vol->updating = 0;
-		kfree(vol->upd_buf);
+		vfree(vol->upd_buf);
 	} else if (vol->changing_leb) {
 		dbg_gen("only %lld of %lld bytes received for atomic LEB change"
 			" for volume %d:%d, cancel", vol->upd_received,
 			vol->upd_bytes, vol->ubi->ubi_num, vol->vol_id);
 		vol->changing_leb = 0;
-		kfree(vol->upd_buf);
+		vfree(vol->upd_buf);
 	}
 
 	ubi_close_volume(desc);
@@ -235,7 +235,7 @@ static ssize_t vol_cdev_read(struct file *file, __user char *buf, size_t count,
 	tbuf_size = vol->usable_leb_size;
 	if (count < tbuf_size)
 		tbuf_size = ALIGN(count, ubi->min_io_size);
-	tbuf = kmalloc(tbuf_size, GFP_KERNEL);
+	tbuf = vmalloc(tbuf_size);
 	if (!tbuf)
 		return -ENOMEM;
 
@@ -271,7 +271,7 @@ static ssize_t vol_cdev_read(struct file *file, __user char *buf, size_t count,
 		len = count > tbuf_size ? tbuf_size : count;
 	} while (count);
 
-	kfree(tbuf);
+	vfree(tbuf);
 	return err ? err : count_save - count;
 }
 
@@ -316,7 +316,7 @@ static ssize_t vol_cdev_direct_write(struct file *file, const char __user *buf,
 	tbuf_size = vol->usable_leb_size;
 	if (count < tbuf_size)
 		tbuf_size = ALIGN(count, ubi->min_io_size);
-	tbuf = kmalloc(tbuf_size, GFP_KERNEL);
+	tbuf = vmalloc(tbuf_size);
 	if (!tbuf)
 		return -ENOMEM;
 
@@ -334,7 +334,8 @@ static ssize_t vol_cdev_direct_write(struct file *file, const char __user *buf,
 			break;
 		}
 
-		err = ubi_eba_write_leb(ubi, vol, lnum, tbuf, off, len);
+		err = ubi_eba_write_leb(ubi, vol, lnum, tbuf, off, len,
+					UBI_UNKNOWN);
 		if (err)
 			break;
 
@@ -350,7 +351,7 @@ static ssize_t vol_cdev_direct_write(struct file *file, const char __user *buf,
 		len = count > tbuf_size ? tbuf_size : count;
 	}
 
-	kfree(tbuf);
+	vfree(tbuf);
 	return err ? err : count_save - count;
 }
 
@@ -476,6 +477,9 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		if (req.lnum < 0 || req.lnum >= vol->reserved_pebs ||
 		    req.bytes < 0 || req.lnum >= vol->usable_leb_size)
 			break;
+		if (req.dtype != UBI_LONGTERM && req.dtype != UBI_SHORTTERM &&
+		    req.dtype != UBI_UNKNOWN)
+			break;
 
 		err = get_exclusive(desc);
 		if (err < 0)
@@ -528,7 +532,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 			err = -EFAULT;
 			break;
 		}
-		err = ubi_leb_map(desc, req.lnum);
+		err = ubi_leb_map(desc, req.lnum, req.dtype);
 		break;
 	}
 

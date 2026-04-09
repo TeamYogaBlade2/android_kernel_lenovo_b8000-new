@@ -17,12 +17,6 @@
 #include <linux/backing-dev.h>
 #include "internal.h"
 
-#define FEATURE_PRINT_FSYNC_PID
-#ifdef USER_BUILD_KERNEL
-#undef FEATURE_PRINT_FSYNC_PID
-#endif
-#include <linux/xlog.h>
-
 #define VALID_FLAGS (SYNC_FILE_RANGE_WAIT_BEFORE|SYNC_FILE_RANGE_WRITE| \
 			SYNC_FILE_RANGE_WAIT_AFTER)
 
@@ -33,189 +27,15 @@
  * wait == 1 case since in that case write_inode() functions do
  * sync_dirty_buffer() and thus effectively write one block at a time.
  */
-
-
-#ifdef FEATURE_PRINT_FSYNC_PID
-#define SYNC_PRT_TIME_PERIOD	2000000000
-#define ID_CNT 20
-static unsigned char f_idx=0;
-static unsigned char fs_idx=0;
-static unsigned char fs1_idx=0;
-static unsigned long long fsync_last_t=0;
-static unsigned long long fs_sync_last_t=0;
-static unsigned long long fs1_sync_last_t=0;
-static DEFINE_MUTEX(fsync_mutex);
-static DEFINE_MUTEX(fs_sync_mutex);
-static DEFINE_MUTEX(fs1_sync_mutex);
-struct
-{
-	pid_t pid;
-	unsigned int cnt; 
-}fsync[ID_CNT], fs_sync[ID_CNT], fs1_sync[ID_CNT];
-static char xlog_buf[ID_CNT*10+50]={0};
-static char xlog_buf2[ID_CNT*10+50]={0};
-static char xlog_buf3[ID_CNT*10+50]={0};
-
-
-
-static void fs_sync_mmcblk0_log(void)
-{
-	pid_t curr_pid;
-	unsigned int i;
-	unsigned long long time1=0;
-	bool ptr_flag=false;
-
-
-	time1 = sched_clock();
-	mutex_lock(&fs_sync_mutex);
-	if(fs_sync_last_t == 0)
-	{
-			fs_sync_last_t = time1;
-	}
-	if (time1 - fs_sync_last_t >= (unsigned long long)SYNC_PRT_TIME_PERIOD)
-	{
-		sprintf(xlog_buf2, "MMCBLK0_FS_Sync [(PID):cnt] -- ");		
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(fs_sync[i].pid==0)
-				break;
-			else
-			{
-				sprintf(xlog_buf2+31+i*9, "(%4d):%d ", fs_sync[i].pid, fs_sync[i].cnt);	//31=strlen("MMCBLK1_FS_Sync [(PID):cnt] -- "), 9=strlen("(%4d):%d ")
-				ptr_flag = true;
-			}
-		}	
-		if(ptr_flag)
-		{		
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "MMCBLK0_FS_Sync statistic in timeline %lld\n", fs_sync_last_t); 
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "%s\n", xlog_buf2);			
-		}		
-		for (i=0;i<ID_CNT;i++)	//clear
-		{
-			fs_sync[i].pid=0;
-			fs_sync[i].cnt=0;
-		}
-		fs_sync_last_t = time1;
-	}
-	curr_pid = task_pid_nr(current);
-	do{
-		if(fs_sync[0].pid ==0)
-		{
-			fs_sync[0].pid= curr_pid;
-			fs_sync[0].cnt ++;
-			fs_idx=0;
-			break;
-		}
-
-		if(curr_pid == fs_sync[fs_idx].pid)
-		{
-			fs_sync[fs_idx].cnt++;
-			break;
-		}
-
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(curr_pid == fs_sync[i].pid)		//found
-			{
-				fs_sync[i].cnt++;
-				fs_idx = i;
-				break;
-			}
-			if((fs_sync[i].pid ==0) || (i==ID_CNT-1) )		//found empty space or (full and NOT found)
-			{
-				fs_sync[i].pid = curr_pid;
-				fs_sync[i].cnt=1;
-				fs_idx=i;			
-				break;
-			}
-		}
-	}while(0);
-	mutex_unlock(&fs_sync_mutex);
-}
-
-static void fs_sync_mmcblk1_log(void)
-{
-	pid_t curr_pid;
-	unsigned int i;
-	unsigned long long time1=0;
-	bool ptr_flag=false;
-
-	time1 = sched_clock();
-	mutex_lock(&fs1_sync_mutex);
-	if(fs1_sync_last_t == 0)
-	{
-			fs1_sync_last_t = time1;
-	}
-	if (time1 - fs1_sync_last_t >= (unsigned long long)SYNC_PRT_TIME_PERIOD)
-	{
-		sprintf(xlog_buf3, "MMCBLK1_FS_Sync [(PID):cnt] -- ");		
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(fs1_sync[i].pid==0)
-				break;
-			else
-			{
-				sprintf(xlog_buf3+31+i*9, "(%4d):%d ", fs1_sync[i].pid, fs1_sync[i].cnt);	//31=strlen("MMCBLK1_FS_Sync [(PID):cnt] -- "), 9=strlen("(%4d):%d ")
-				ptr_flag = true;
-			}
-		}	
-		if(ptr_flag)
-		{		
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "MMCBLK1_FS_Sync statistic in timeline %lld\n", fs1_sync_last_t); 
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "%s\n", xlog_buf3);			
-		}		
-		for (i=0;i<ID_CNT;i++)	//clear
-		{
-			fs1_sync[i].pid=0;
-			fs1_sync[i].cnt=0;
-		}
-		fs1_sync_last_t = time1;
-	}
-	curr_pid = task_pid_nr(current);
-	do{
-		if(fs1_sync[0].pid ==0)
-		{
-			fs1_sync[0].pid= curr_pid;
-			fs1_sync[0].cnt ++;
-			fs1_idx=0;
-			break;
-		}
-
-		if(curr_pid == fs1_sync[fs1_idx].pid)
-		{
-			fs1_sync[fs1_idx].cnt++;
-			break;
-		}
-
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(curr_pid == fs1_sync[i].pid)		//found
-			{
-				fs1_sync[i].cnt++;
-				fs1_idx = i;
-				break;
-			}
-			if((fs1_sync[i].pid ==0) || (i==ID_CNT-1) )		//found empty space or (full and NOT found)
-			{
-				fs1_sync[i].pid = curr_pid;
-				fs1_sync[i].cnt=1;
-				fs1_idx=i;			
-				break;
-			}
-		}
-	}while(0);
-	mutex_unlock(&fs1_sync_mutex);
-}
-#endif	
-
-
-
 static int __sync_filesystem(struct super_block *sb, int wait)
 {
+	/*
+	 * This should be safe, as we require bdi backing to actually
+	 * write out data in the first place
+	 */
+	if (sb->s_bdi == &noop_backing_dev_info)
+		return 0;
 
-#ifdef FEATURE_PRINT_FSYNC_PID
-	char b[BDEVNAME_SIZE];
-#endif 
 	if (sb->s_qcop && sb->s_qcop->quota_sync)
 		sb->s_qcop->quota_sync(sb, -1, wait);
 
@@ -226,17 +46,6 @@ static int __sync_filesystem(struct super_block *sb, int wait)
 
 	if (sb->s_op->sync_fs)
 		sb->s_op->sync_fs(sb, wait);
-
-#ifdef FEATURE_PRINT_FSYNC_PID
-if(sb->s_bdev != NULL)
-{
-	if((!memcmp(bdevname(sb->s_bdev, b),"mmcblk0",7)))
-		fs_sync_mmcblk0_log();
-	else if((!memcmp(bdevname(sb->s_bdev, b),"mmcblk1",7)))
-		fs_sync_mmcblk1_log();
-}
-#endif
-
 	return __sync_blockdev(sb->s_bdev, wait);
 }
 
@@ -268,48 +77,29 @@ int sync_filesystem(struct super_block *sb)
 }
 EXPORT_SYMBOL_GPL(sync_filesystem);
 
-static void sync_inodes_one_sb(struct super_block *sb, void *arg)
+static void sync_one_sb(struct super_block *sb, void *arg)
 {
 	if (!(sb->s_flags & MS_RDONLY))
-		sync_inodes_sb(sb);
+		__sync_filesystem(sb, *(int *)arg);
 }
-
-static void sync_fs_one_sb(struct super_block *sb, void *arg)
+/*
+ * Sync all the data for all the filesystems (called by sys_sync() and
+ * emergency sync)
+ */
+static void sync_filesystems(int wait)
 {
-	if (!(sb->s_flags & MS_RDONLY) && sb->s_op->sync_fs)
-		sb->s_op->sync_fs(sb, *(int *)arg);
-}
-
-static void fdatawrite_one_bdev(struct block_device *bdev, void *arg)
-{
-	filemap_fdatawrite(bdev->bd_inode->i_mapping);
-}
-
-static void fdatawait_one_bdev(struct block_device *bdev, void *arg)
-{
-	filemap_fdatawait(bdev->bd_inode->i_mapping);
+	iterate_supers(sync_one_sb, &wait);
 }
 
 /*
- * Sync everything. We start by waking flusher threads so that most of
- * writeback runs on all devices in parallel. Then we sync all inodes reliably
- * which effectively also waits for all flusher threads to finish doing
- * writeback. At this point all data is on disk so metadata should be stable
- * and we tell filesystems to sync their metadata via ->sync_fs() calls.
- * Finally, we writeout all block devices because some filesystems (e.g. ext2)
- * just write metadata (such as inodes or bitmaps) to block device page cache
- * and do not sync it on their own in ->sync_fs().
+ * sync everything.  Start out by waking pdflush, because that writes back
+ * all queues in parallel.
  */
 SYSCALL_DEFINE0(sync)
 {
-	int nowait = 0, wait = 1;
-
 	wakeup_flusher_threads(0, WB_REASON_SYNC);
-	iterate_supers(sync_inodes_one_sb, NULL);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &wait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
-	iterate_bdevs(fdatawait_one_bdev, NULL);
+	sync_filesystems(0);
+	sync_filesystems(1);
 	if (unlikely(laptop_mode))
 		laptop_sync_completion();
 	return 0;
@@ -317,18 +107,12 @@ SYSCALL_DEFINE0(sync)
 
 static void do_sync_work(struct work_struct *work)
 {
-	int nowait = 0;
-
 	/*
 	 * Sync twice to reduce the possibility we skipped some inodes / pages
 	 * because they were temporarily locked
 	 */
-	iterate_supers(sync_inodes_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
-	iterate_supers(sync_inodes_one_sb, &nowait);
-	iterate_supers(sync_fs_one_sb, &nowait);
-	iterate_bdevs(fdatawrite_one_bdev, NULL);
+	sync_filesystems(0);
+	sync_filesystems(0);
 	printk("Emergency Sync complete\n");
 	kfree(work);
 }
@@ -380,84 +164,8 @@ SYSCALL_DEFINE1(syncfs, int, fd)
  */
 int vfs_fsync_range(struct file *file, loff_t start, loff_t end, int datasync)
 {
-#ifdef FEATURE_PRINT_FSYNC_PID
-	pid_t curr_pid;
-	unsigned int i;
-	unsigned long long time1=0;
-	bool ptr_flag=false;
-#endif	
-
-
 	if (!file->f_op || !file->f_op->fsync)
 		return -EINVAL;
-#ifdef FEATURE_PRINT_FSYNC_PID
-	time1 = sched_clock();
-mutex_lock(&fsync_mutex);
-	if(fsync_last_t == 0)
-	{
-			fsync_last_t = time1;
-	}
-	if (time1 - fsync_last_t >= (unsigned long long)SYNC_PRT_TIME_PERIOD)
-	{
-		sprintf(xlog_buf, "Fsync [(PID):cnt] -- ");		
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(fsync[i].pid==0)
-				break;
-			else
-			{
-				sprintf(xlog_buf+21+i*9, "(%4d):%d ", fsync[i].pid, fsync[i].cnt);	//21=strlen("Fsync [(PID):cnt] -- "), 9=strlen("(%4d):%d ")
-				ptr_flag = true;
-			}
-		}	
-		if(ptr_flag)
-		{		
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "Fsync statistic in timeline %lld\n", fsync_last_t); 
-			xlog_printk(ANDROID_LOG_DEBUG, "BLOCK_TAG", "%s\n", xlog_buf);			
-		}		
-		for (i=0;i<ID_CNT;i++)	//clear
-		{
-			fsync[i].pid=0;
-			fsync[i].cnt=0;
-		}
-		fsync_last_t = time1;
-	}
-	curr_pid = task_pid_nr(current);	
-	do{
-		if(fsync[0].pid ==0)
-		{
-			fsync[0].pid= curr_pid;
-			fsync[0].cnt ++;
-			f_idx=0;
-			break;
-		}
-
-		if(curr_pid == fsync[f_idx].pid)
-		{
-			fsync[f_idx].cnt++;
-			break;
-		}
-
-		for(i=0;i<ID_CNT;i++)
-		{
-			if(curr_pid == fsync[i].pid)		//found
-			{
-				fsync[i].cnt++;
-				f_idx = i;
-				break;
-			}
-			if((fsync[i].pid ==0) || (i==ID_CNT-1) )		//found empty space or (full and NOT found)
-			{
-				fsync[i].pid = curr_pid;
-				fsync[i].cnt=1;
-				f_idx=i;			
-				break;
-			}
-		}
-	}while(0);
-mutex_unlock(&fsync_mutex);
-#endif	
-
 	return file->f_op->fsync(file, start, end, datasync);
 }
 EXPORT_SYMBOL(vfs_fsync_range);

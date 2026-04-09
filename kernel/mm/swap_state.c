@@ -7,7 +7,6 @@
  *  Rewritten to use page cache, (C) 1998 Stephen Tweedie
  */
 #include <linux/mm.h>
-#include <linux/export.h>
 #include <linux/gfp.h>
 #include <linux/kernel_stat.h>
 #include <linux/swap.h>
@@ -18,7 +17,6 @@
 #include <linux/pagevec.h>
 #include <linux/migrate.h>
 #include <linux/page_cgroup.h>
-#include <linux/export.h>
 
 #include <asm/pgtable.h>
 
@@ -44,7 +42,6 @@ struct address_space swapper_space = {
 	.i_mmap_nonlinear = LIST_HEAD_INIT(swapper_space.i_mmap_nonlinear),
 	.backing_dev_info = &swap_backing_dev_info,
 };
-EXPORT_SYMBOL(swapper_space);
 
 #define INC_CACHE_INFO(x)	do { swap_cache_info.x++; } while (0)
 
@@ -300,15 +297,7 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		 * Get a new page to read into from swap.
 		 */
 		if (!new_page) {
-#ifndef CONFIG_MTKPASR
 			new_page = alloc_page_vma(gfp_mask, vma, addr);
-#else
-			if (vma && unlikely(vma->vm_flags & VM_LOCKED)) {
-				new_page = alloc_pages(gfp_mask, 0);
-			} else {
-				new_page = alloc_page_vma(gfp_mask, vma, addr);
-			}
-#endif
 			if (!new_page)
 				break;		/* Out of memory */
 		}

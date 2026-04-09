@@ -22,9 +22,6 @@
 
 #include "u_ether.h"
 
-#include "logger.h"
-
-#define UETHER_LOG "UTHER"
 
 /*
  * This component encapsulates the Ethernet link glue needed to provide
@@ -49,8 +46,6 @@
 
 #define UETH__VERSION	"29-May-2008"
 
-static struct workqueue_struct	*uether_wq;
-
 struct eth_dev {
 	/* lock is held while accessing port_usb
 	 * or updating its backlink port_usb->ioport
@@ -74,7 +69,6 @@ struct eth_dev {
 						struct sk_buff_head *list);
 
 	struct work_struct	work;
-	struct work_struct	rx_work;
 
 	unsigned long		todo;
 #define	WORK_RX_MEMORY		0
@@ -165,8 +159,6 @@ static int ueth_change_mtu(struct net_device *net, int new_mtu)
 		net->mtu = new_mtu;
 	spin_unlock_irqrestore(&dev->lock, flags);
 
-	xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "ueth_change_mtu to %d, status is %d\n", new_mtu , status);
-
 	return status;
 }
 
@@ -237,17 +229,14 @@ rx_submit(struct eth_dev *dev, struct usb_request *req, gfp_t gfp_flags)
 	 */
 	size += sizeof(struct ethhdr) + dev->net->mtu + RX_EXTRA;
 	size += dev->port_usb->header_len;
-	/*
 	size += out->maxpacket - 1;
 	size -= size % out->maxpacket;
-	*/
 
 	if (dev->port_usb->is_fixed)
 		size = max_t(size_t, size, dev->port_usb->fixed_out_len);
 
 	skb = alloc_skb(size + NET_IP_ALIGN, gfp_flags);
 	if (skb == NULL) {
-		xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "rx_submit : no rx skb\n");
 		DBG(dev, "no rx skb\n");
 		goto enomem;
 	}
@@ -271,16 +260,18 @@ enomem:
 		DBG(dev, "rx submit --> %d\n", retval);
 		if (skb)
 			dev_kfree_skb_any(skb);
+		spin_lock_irqsave(&dev->req_lock, flags);
+		list_add(&req->list, &dev->rx_reqs);
+		spin_unlock_irqrestore(&dev->req_lock, flags);
 	}
 	return retval;
 }
 
 static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 {
-	struct sk_buff	*skb = req->context;
+	struct sk_buff	*skb = req->context, *skb2;
 	struct eth_dev	*dev = ep->driver_data;
 	int		status = req->status;
-	bool    queue = 0;
 
 	switch (status) {
 
@@ -304,8 +295,30 @@ static void rx_complete(struct usb_ep *ep, struct usb_request *req)
 		} else {
 			skb_queue_tail(&dev->rx_frames, skb);
 		}
-		if (!status)
-		    queue = 1;
+		skb = NULL;
+
+		skb2 = skb_dequeue(&dev->rx_frames);
+		while (skb2) {
+			if (status < 0
+					|| ETH_HLEN > skb2->len
+					|| skb2->len > ETH_FRAME_LEN) {
+				dev->net->stats.rx_errors++;
+				dev->net->stats.rx_length_errors++;
+				DBG(dev, "rx length %d\n", skb2->len);
+				dev_kfree_skb_any(skb2);
+				goto next_frame;
+			}
+			skb2->protocol = eth_type_trans(skb2, dev->net);
+			dev->net->stats.rx_packets++;
+			dev->net->stats.rx_bytes += skb2->len;
+
+			/* no buffer copies needed, unless hardware can't
+			 * use skb buffers.
+			 */
+			status = netif_rx(skb2);
+next_frame:
+			skb2 = skb_dequeue(&dev->rx_frames);
+		}
 		break;
 
 	/* software-driven interface shutdown */
@@ -328,20 +341,22 @@ quiesce:
 		/* FALLTHROUGH */
 
 	default:
-		queue = 1;
-		dev_kfree_skb_any(skb);
 		dev->net->stats.rx_errors++;
 		DBG(dev, "rx status %d\n", status);
 		break;
 	}
 
+	if (skb)
+		dev_kfree_skb_any(skb);
+	if (!netif_running(dev->net)) {
 clean:
 		spin_lock(&dev->req_lock);
 		list_add(&req->list, &dev->rx_reqs);
 		spin_unlock(&dev->req_lock);
-
-		if (queue)
-			queue_work(uether_wq, &dev->rx_work);
+		req = NULL;
+	}
+	if (req)
+		rx_submit(dev, req, GFP_ATOMIC);
 }
 
 static int prealloc(struct list_head *list, struct usb_ep *ep, unsigned n)
@@ -397,7 +412,6 @@ static int alloc_requests(struct eth_dev *dev, struct gether *link, unsigned n)
 	goto done;
 fail:
 	DBG(dev, "can't alloc requests\n");
-	xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "alloc_requests : can't alloc requests\n");
 done:
 	spin_unlock(&dev->req_lock);
 	return status;
@@ -407,24 +421,16 @@ static void rx_fill(struct eth_dev *dev, gfp_t gfp_flags)
 {
 	struct usb_request	*req;
 	unsigned long		flags;
-	int                 req_cnt = 0;
 
 	/* fill unused rxq slots with some skb */
 	spin_lock_irqsave(&dev->req_lock, flags);
 	while (!list_empty(&dev->rx_reqs)) {
-		/* break continuous completion and re-submission*/
-		if (++req_cnt > qlen(dev->gadget))
-			break;
-
 		req = container_of(dev->rx_reqs.next,
 				struct usb_request, list);
 		list_del_init(&req->list);
 		spin_unlock_irqrestore(&dev->req_lock, flags);
 
 		if (rx_submit(dev, req, gfp_flags) < 0) {
-			spin_lock_irqsave(&dev->req_lock, flags);
-			list_add(&req->list, &dev->rx_reqs);
-			spin_unlock_irqrestore(&dev->req_lock, flags);
 			defer_kevent(dev, WORK_RX_MEMORY);
 			return;
 		}
@@ -433,37 +439,6 @@ static void rx_fill(struct eth_dev *dev, gfp_t gfp_flags)
 	}
 	spin_unlock_irqrestore(&dev->req_lock, flags);
 }
-
-static void process_rx_w(struct work_struct *work)
-{
-	struct eth_dev	*dev = container_of(work, struct eth_dev, rx_work);
-	struct sk_buff	*skb;
-	int		status = 0;
-
-	if (!dev->port_usb)
-		return;
-
-	while ((skb = skb_dequeue(&dev->rx_frames))) {
-		if (status < 0
-				|| ETH_HLEN > skb->len
-				|| skb->len > ETH_FRAME_LEN) {
-			dev->net->stats.rx_errors++;
-			dev->net->stats.rx_length_errors++;
-			DBG(dev, "rx length %d\n", skb->len);
-			dev_kfree_skb_any(skb);
-			continue;
-		}
-		skb->protocol = eth_type_trans(skb, dev->net);
-		dev->net->stats.rx_packets++;
-		dev->net->stats.rx_bytes += skb->len;
-
-		status = netif_rx_ni(skb);
-	}
-
-	if (netif_running(dev->net))
-		rx_fill(dev, GFP_KERNEL);
-}
-
 
 static void eth_work(struct work_struct *work)
 {
@@ -521,11 +496,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	unsigned long		flags;
 	struct usb_ep		*in;
 	u16			cdc_filter;
-	
-	//ALPS00542120
-	static unsigned int okCnt = 0, busyCnt = 0;
-	static int firstShot = 1, diffSec;
-	static struct timeval tv_last, tv_cur;
 
 	spin_lock_irqsave(&dev->lock, flags);
 	if (dev->port_usb) {
@@ -571,29 +541,9 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	 * network stack decided to xmit but before we got the spinlock.
 	 */
 	if (list_empty(&dev->tx_reqs)) {
-
-		busyCnt++;
-		do_gettimeofday(&tv_cur);
-
-		if(firstShot)
-		{
-			tv_last = tv_cur;
-			firstShot = 0;
-			printk(KERN_ERR "%s, NETDEV_TX_BUSY returned at firstShot , okCnt : %u, busyCnt : %u\n", __func__, okCnt, busyCnt);
-		}
-		else
-		{
-			diffSec = tv_cur.tv_sec - tv_last.tv_sec;
-			if(diffSec >=2 )
-			{
-				tv_last = tv_cur;
-				printk(KERN_ERR "%s, NETDEV_TX_BUSY returned, okCnt : %u, busyCnt : %u\n", __func__, okCnt, busyCnt);
-			}
-		}
 		spin_unlock_irqrestore(&dev->req_lock, flags);
 		return NETDEV_TX_BUSY;
 	}
-	okCnt++;
 
 	req = container_of(dev->tx_reqs.next, struct usb_request, list);
 	list_del(&req->list);
@@ -651,7 +601,6 @@ static netdev_tx_t eth_start_xmit(struct sk_buff *skb,
 	switch (retval) {
 	default:
 		DBG(dev, "tx queue err %d\n", retval);
-		xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "eth_start_xmit : tx queue err %d\n", retval);
 		break;
 	case 0:
 		net->trans_start = jiffies;
@@ -676,7 +625,6 @@ drop:
 static void eth_start(struct eth_dev *dev, gfp_t gfp_flags)
 {
 	DBG(dev, "%s\n", __func__);
-	xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "%s\n", __func__);
 
 	/* fill the rx queue */
 	rx_fill(dev, gfp_flags);
@@ -692,8 +640,6 @@ static int eth_open(struct net_device *net)
 	struct gether	*link;
 
 	DBG(dev, "%s\n", __func__);
-	xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "%s\n", __func__);
-
 	if (netif_carrier_ok(dev->net))
 		eth_start(dev, GFP_KERNEL);
 
@@ -712,8 +658,6 @@ static int eth_stop(struct net_device *net)
 	unsigned long	flags;
 
 	VDBG(dev, "%s\n", __func__);
-	xlog_printk(ANDROID_LOG_INFO, UETHER_LOG, "%s\n", __func__);
-
 	netif_stop_queue(net);
 
 	DBG(dev, "stop stats: rx/tx %ld/%ld, errs %ld/%ld\n",
@@ -855,7 +799,6 @@ int gether_setup_name(struct usb_gadget *g, u8 ethaddr[ETH_ALEN],
 	spin_lock_init(&dev->lock);
 	spin_lock_init(&dev->req_lock);
 	INIT_WORK(&dev->work, eth_work);
-	INIT_WORK(&dev->rx_work, process_rx_w);
 	INIT_LIST_HEAD(&dev->tx_reqs);
 	INIT_LIST_HEAD(&dev->rx_reqs);
 
@@ -1018,7 +961,6 @@ void gether_disconnect(struct gether *link)
 {
 	struct eth_dev		*dev = link->ioport;
 	struct usb_request	*req;
-	struct sk_buff      *skb;
 
 	WARN_ON(!dev);
 	if (!dev)
@@ -1045,12 +987,6 @@ void gether_disconnect(struct gether *link)
 		spin_lock(&dev->req_lock);
 	}
 	spin_unlock(&dev->req_lock);
-
-	spin_lock(&dev->rx_frames.lock);
-	while ((skb = __skb_dequeue(&dev->rx_frames)))
-		dev_kfree_skb_any(skb);
-	spin_unlock(&dev->rx_frames.lock);
-
 	link->in_ep->driver_data = NULL;
 	link->in_ep->desc = NULL;
 
@@ -1079,24 +1015,3 @@ void gether_disconnect(struct gether *link)
 	link->ioport = NULL;
 	spin_unlock(&dev->lock);
 }
-
-static int __init gether_init(void)
-{
-	uether_wq  = create_singlethread_workqueue("uether");
-	if (!uether_wq) {
-		pr_err("%s: Unable to create workqueue: uether\n", __func__);
-		return -ENOMEM;
-	}
-	return 0;
-}
-module_init(gether_init);
-
-static void __exit gether_exit(void)
-{
-	destroy_workqueue(uether_wq);
-
-}
-module_exit(gether_exit);
-MODULE_DESCRIPTION("ethernet over USB driver");
-MODULE_LICENSE("GPL v2");
-

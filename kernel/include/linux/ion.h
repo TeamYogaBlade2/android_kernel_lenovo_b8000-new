@@ -18,7 +18,7 @@
 #define _LINUX_ION_H
 
 #include <linux/types.h>
-struct ion_handle_debug;
+
 struct ion_handle;
 /**
  * enum ion_heap_types - list of all possible types of heaps
@@ -36,19 +36,17 @@ enum ion_heap_type {
 	ION_HEAP_TYPE_SYSTEM,
 	ION_HEAP_TYPE_SYSTEM_CONTIG,
 	ION_HEAP_TYPE_CARVEOUT,
-	ION_HEAP_TYPE_MULTIMEDIA,
 	ION_HEAP_TYPE_CHUNK,
 	ION_HEAP_TYPE_DMA,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
-	ION_NUM_HEAPS,
+	ION_NUM_HEAPS = 16,
 };
 
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK	(1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
 #define ION_HEAP_CARVEOUT_MASK		(1 << ION_HEAP_TYPE_CARVEOUT)
 #define ION_HEAP_TYPE_DMA_MASK		(1 << ION_HEAP_TYPE_DMA)
-#define ION_HEAP_MULTIMEDIA_MASK        (1 << ION_HEAP_TYPE_MULTIMEDIA)
 
 #define ION_NUM_HEAP_IDS		sizeof(unsigned int) * 8
 
