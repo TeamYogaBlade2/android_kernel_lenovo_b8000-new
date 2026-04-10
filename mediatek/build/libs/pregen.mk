@@ -224,19 +224,19 @@ endif
 	$(hide) echo $(SHOWTIME) $(basename $(notdir $@))ing ...
 	$(hide) echo -e \\t\\t\\t\\b\\b\\b\\bLOG: $(S_LOG)$(basename $(notdir $@)).log
 	$(hide) rm -f $(LOG)$(basename $(notdir $@)).log $(LOG)$(basename $(notdir $@)).log_err
-	$(hide) $(if $(TO_ROOT),cd $(TO_ROOT);) perl $(MEM_PARTITION_GENERATOR) \
-                     MTK_PLATFORM=$(MTK_PLATFORM) \
-                     PROJECT=$(PROJECT) \
-                     FULL_PROJECT=$(FULL_PROJECT) \
-                     MTK_LCA_SUPPORT=$(MTK_LCA_SUPPORT) \
-                     MTK_NAND_PAGE_SIZE=$(MTK_NAND_PAGE_SIZE) \
-                     MTK_EMMC_SUPPORT=$(MTK_EMMC_SUPPORT) \
-                     EMMC_CHIP=$(EMMC_CHIP) \
-                     MTK_LDVT_SUPPORT=$(MTK_LDVT_SUPPORT) \
-                     TARGET_BUILD_VARIANT=$(TARGET_BUILD_VARIANT) \
-                     MTK_EMMC_OTP_SUPPORT=$(MTK_EMMC_SUPPORT_OTP) \
-                     $(DEAL_STDOUT_PTGEN) \
-                     $(MTK_DEPENDENCY_LOG)
+#	$(hide) $(if $(TO_ROOT),cd $(TO_ROOT);) perl $(MEM_PARTITION_GENERATOR) \
+#                     MTK_PLATFORM=$(MTK_PLATFORM) \
+#                     PROJECT=$(PROJECT) \
+#                     FULL_PROJECT=$(FULL_PROJECT) \
+#                     MTK_LCA_SUPPORT=$(MTK_LCA_SUPPORT) \
+#                     MTK_NAND_PAGE_SIZE=$(MTK_NAND_PAGE_SIZE) \
+#                     MTK_EMMC_SUPPORT=$(MTK_EMMC_SUPPORT) \
+#                     EMMC_CHIP=$(EMMC_CHIP) \
+#                     MTK_LDVT_SUPPORT=$(MTK_LDVT_SUPPORT) \
+#                     TARGET_BUILD_VARIANT=$(TARGET_BUILD_VARIANT) \
+#                     MTK_EMMC_OTP_SUPPORT=$(MTK_EMMC_SUPPORT_OTP) \
+#                     $(DEAL_STDOUT_PTGEN) \
+#                     $(MTK_DEPENDENCY_LOG)
 ifneq ($(MTK_GPL_PACKAGE),yes)
 	$(hide) mkdir -p $(LOGDIR)/$(PROJECT)
 endif
