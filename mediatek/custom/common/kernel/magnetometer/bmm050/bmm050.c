@@ -1551,9 +1551,9 @@ static const struct i2c_device_id bmm050_i2c_id[] = {{BMM050_DEV_NAME,0},{}};
 static struct i2c_board_info __initdata i2c_bmm050={ I2C_BOARD_INFO("bmm050", (0x10))};
 
 /*the adapter id will be available in customization*/
-//static unsigned short bmm050_force[] = {0x00, BMM050_I2C_ADDR, I2C_CLIENT_END, I2C_CLIENT_END};
-//static const unsigned short *const bmm050_forces[] = { bmm050_force, NULL };
-//static struct i2c_client_address_data bmm050_addr_data = { .forces = bmm050_forces,};
+static unsigned short bmm050_force[] = {0x00, BMM050_I2C_ADDR, I2C_CLIENT_END, I2C_CLIENT_END};
+static const unsigned short *const bmm050_forces[] = { bmm050_force, NULL };
+static struct i2c_client_address_data bmm050_addr_data = { .forces = bmm050_forces,};
 /*----------------------------------------------------------------------------*/
 
 typedef enum {
@@ -2964,7 +2964,7 @@ static struct i2c_driver bmm050_i2c_driver = {
 	.resume     = bmm050_resume,
 #endif 
 	.id_table = bmm050_i2c_id,
-//	.address_data = &bmm050_addr_data,
+	.address_data = &bmm050_addr_data,
 };
 /*----------------------------------------------------------------------------*/
 static int bmm050_probe(struct platform_device *pdev) 

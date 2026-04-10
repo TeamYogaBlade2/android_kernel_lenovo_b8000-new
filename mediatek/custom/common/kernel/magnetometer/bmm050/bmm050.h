@@ -19,7 +19,7 @@
 #define CALIBRATION_DATA_SIZE	12
 
 
-#define BMM050_I2C_ADDR		0x20
+#define BMM050_I2C_ADDR		0x13
 
 // conversion of magnetic data (for bmm050) to uT units
 // conversion of magnetic data to uT units
