@@ -84,11 +84,11 @@ $(foreach i,\
 LINUXINCLUDE += $(strip $(addprefix -I$(MTK_ROOT_CUSTOM_OUT)/kernel/,$(_module_inc_kernel)))
 LINUXINCLUDE += $(strip $(addprefix -I$(MTK_ROOT_CUSTOM_OUT)/hal/,$(_module_inc_hal)))
 # add include path for ptgen output
-#LINUXINCLUDE += -I$(MTK_ROOT_CUSTOM_OUT)/common
-LINUXINCLUDE += -I$(MTK_ROOT_OUT)/PTGEN/common
-LINUXINCLUDE += -I$(MTK_ROOT_OUT)/PTGEN/kernel
+LINUXINCLUDE += -I$(MTK_ROOT_CUSTOM_OUT)/common
+#LINUXINCLUDE += -I$(MTK_ROOT_OUT)/PTGEN/common
+#LINUXINCLUDE += -I$(MTK_ROOT_OUT)/PTGEN/kernel
 # for nandgen
-LINUXINCLUDE += -I$(MTK_ROOT_OUT)/NANDGEN/common
+#LINUXINCLUDE += -I$(MTK_ROOT_OUT)/NANDGEN/common
 
 # use custgen instead
 mediatek-configs: $(MTK_ROOT_GEN_CONFIG)/kconfig
