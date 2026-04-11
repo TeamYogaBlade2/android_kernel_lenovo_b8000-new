@@ -292,7 +292,7 @@ endif
   MTK_DEPENDENCY_PRECLEAN_BEFORE_LK      := $(filter %/rules.mk %/rules_platform.mk,$(mtk-custom-files))
 endif
 ifeq ($(BUILD_KERNEL),yes)
-  MTK_DEPENDENCY_PREGEN_BEFORE_KERNEL    := nandgen ptgen drvgen
+  MTK_DEPENDENCY_PREGEN_BEFORE_KERNEL    := nandgen drvgen
 ifeq ($(LEGACY_DFO_GEN), yes)
   MTK_DEPENDENCY_PREGEN_BEFORE_KERNEL    += $(if $(filter yes,$(strip $(KBUILD_OUTPUT_SUPPORT))),$(MTK_ROOT_OUT)/KERNEL_OBJ,$(KERNEL_WD))/include/mach/dfo_boot.h \
                                             $(if $(filter yes,$(strip $(KBUILD_OUTPUT_SUPPORT))),$(MTK_ROOT_OUT)/KERNEL_OBJ,$(KERNEL_WD))/include/mach/dfo_boot_default.h
@@ -709,16 +709,16 @@ dump-memusage:
                 $(SHOWRSLT) $${PIPESTATUS[0]} $(LOG)$@.log
 
 
-ifneq ($(MTK_DEPENDENCY_AUTO_CHECK), true)
-.PHONY: $(OTA_SCATTER_FILE)
-endif
-OTA_SCATTER_GENERATOR := $(MTK_ROOT_BUILD)/tools/ptgen/ota_scatter.pl
-$(OTA_SCATTER_FILE): $(SCATTER_FILE) $(OTA_SCATTER_GENERATOR)
-ifeq ($(MTK_DEPENDENCY_AUTO_CHECK), true)
-	-@echo [Update] $@: $?
-endif
-	$(hide) mkdir -p $(dir $@)
-	$(hide) perl $(OTA_SCATTER_GENERATOR) $< $@
+#ifneq ($(MTK_DEPENDENCY_AUTO_CHECK), true)
+#.PHONY: $(OTA_SCATTER_FILE)
+#endif
+#OTA_SCATTER_GENERATOR := $(MTK_ROOT_BUILD)/tools/ptgen/ota_scatter.pl
+#$(OTA_SCATTER_FILE): $(SCATTER_FILE) $(OTA_SCATTER_GENERATOR)
+#ifeq ($(MTK_DEPENDENCY_AUTO_CHECK), true)
+#	-@echo [Update] $@: $?
+#endif
+#	$(hide) mkdir -p $(dir $@)
+#	$(hide) perl $(OTA_SCATTER_GENERATOR) $< $@
 
 
 gen-relkey: PRIVATE_KEY_GENERATOR := development/tools/make_key
