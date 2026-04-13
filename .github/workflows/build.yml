@@ -48,7 +48,7 @@ jobs:
         run: ./makeMtk -t -o=TARGET_BUILD_VARIANT=user blade10 n k
 
       - name: Release
-        run: gh release create "build-$(date +%Y-%m-%d-%H-%M-%S)" out/Download/flash/kernel_blade10.bin
+        run: gh release create "build-$(date +%Y-%m-%d-%H-%M-%S)" out/Download/flash/kernel_blade10.bin out/target/product/blade10/obj/KERNEL_OBJ/arch/arm/boot/zImage
         env:
           GH_TOKEN: ${{ github.token }}
 
