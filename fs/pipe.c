@@ -568,7 +568,11 @@ redo1:
 			int error, atomic = 1;
 
 			if (!page) {
-				page = alloc_page(GFP_HIGHUSER);
+				#ifndef CONFIG_MTK_PAGERECORDER
+					page = alloc_page(GFP_HIGHUSER & ~__GFP_HIGHMEM);
+				#else
+					page = alloc_page_nopagedebug(GFP_HIGHUSER & ~__GFP_HIGHMEM);
+				#endif
 				if (unlikely(!page)) {
 					ret = ret ? : -ENOMEM;
 					break;

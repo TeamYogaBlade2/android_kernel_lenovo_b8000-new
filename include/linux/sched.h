@@ -92,6 +92,7 @@ struct sched_param {
 #include <linux/llist.h>
 
 #include <asm/processor.h>
+#include <linux/rtpm_prio.h>
 
 struct exec_domain;
 struct futex_pi_state;
@@ -141,10 +142,14 @@ extern unsigned long nr_uninterruptible(void);
 extern unsigned long nr_iowait(void);
 extern unsigned long nr_iowait_cpu(int cpu);
 extern unsigned long this_cpu_load(void);
-
-
+extern unsigned long get_cpu_load(int cpu);
+extern unsigned long long mt_get_thread_cputime(pid_t pid);
+extern unsigned long long mt_get_cpu_idle(int cpu);
+extern unsigned long long mt_sched_clock(void);
 extern void calc_global_load(unsigned long ticks);
+#ifdef CONFIG_MTK_SCHED_CMP
 extern void update_cpu_load_nohz(void);
+#endif
 
 extern unsigned long get_parent_ip(unsigned long addr);
 
@@ -185,6 +190,7 @@ print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 #define TASK_UNINTERRUPTIBLE	2
 #define __TASK_STOPPED		4
 #define __TASK_TRACED		8
+#define MTK_TASK_IO_WAIT    12
 /* in tsk->exit_state */
 #define EXIT_ZOMBIE		16
 #define EXIT_DEAD		32
@@ -862,6 +868,12 @@ enum cpu_idle_type {
 #define SD_ASYM_PACKING		0x0800  /* Place busy groups earlier in the domain */
 #define SD_PREFER_SIBLING	0x1000	/* Prefer to place tasks in a sibling domain */
 #define SD_OVERLAP		0x2000	/* sched_domains of this level overlap */
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+#define SD_BALANCE_TG		0x4000  /* Balance for thread group */
+#endif
+#ifdef CONFIG_MTK_SCHED_CMP_PACK_SMALL_TASK
+#define SD_SHARE_POWERLINE	0x8000	/* Domain members share power domain */
+#endif
 
 enum powersavings_balance_level {
 	POWERSAVINGS_BALANCE_NONE = 0,  /* No power saving load balance */
@@ -989,6 +1001,9 @@ struct sched_domain {
 	unsigned long last_balance;	/* init to jiffies. units in jiffies */
 	unsigned int balance_interval;	/* initialise to 1. units in ms. */
 	unsigned int nr_balance_failed; /* initialise to 0 */
+#ifdef CONFIG_MT_LOAD_BALANCE_PROFILER
+	unsigned int mt_lbprof_nr_balance_failed; /* initialise to 0 */
+#endif	
 
 	u64 last_update;
 
@@ -1135,6 +1150,9 @@ struct sched_class {
 
 #ifdef CONFIG_SMP
 	int  (*select_task_rq)(struct task_struct *p, int sd_flag, int flags);
+ #ifdef CONFIG_MTK_SCHED_CMP
+	void (*migrate_task_rq)(struct task_struct *p, int next_cpu);
+ #endif
 
 	void (*pre_schedule) (struct rq *this_rq, struct task_struct *task);
 	void (*post_schedule) (struct rq *this_rq);
@@ -1168,6 +1186,22 @@ struct sched_class {
 struct load_weight {
 	unsigned long weight, inv_weight;
 };
+
+#ifdef CONFIG_MTK_SCHED_CMP
+struct sched_avg {
+	/*
+	 * These sums represent an infinite geometric series and so are bound
+	 * above by 1024/(1-y).  Thus we only need a u32 to store them for for all
+	 * choices of y < 1-2^(-32)*1024.
+	 */
+	u32 runnable_avg_sum, runnable_avg_period;
+	u64 last_runnable_update;
+	s64 decay_count;
+	unsigned long load_avg_contrib;
+	unsigned long load_avg_ratio;
+	u32 usage_avg_sum;
+};
+#endif
 
 #ifdef CONFIG_SCHEDSTATS
 struct sched_statistics {
@@ -1205,6 +1239,15 @@ struct sched_statistics {
 };
 #endif
 
+#ifdef CONFIG_MTPROF_CPUTIME
+struct mtk_isr_info{
+	int     isr_num;
+	int	 isr_count;
+	u64   isr_time;
+	char *isr_name;
+	struct mtk_isr_info *next;
+} ;
+#endif
 struct sched_entity {
 	struct load_weight	load;		/* for load-balancing */
 	struct rb_node		run_node;
@@ -1229,6 +1272,18 @@ struct sched_entity {
 	/* rq "owned" by this entity/group: */
 	struct cfs_rq		*my_q;
 #endif
+#ifdef CONFIG_MTPROF_CPUTIME
+	u64			mtk_isr_time;
+	int			mtk_isr_count;
+	struct mtk_isr_info  *mtk_isr;
+#endif
+
+#ifdef CONFIG_MTK_SCHED_CMP
+#ifdef CONFIG_SMP
+	/* Per-entity load-tracking */
+	struct sched_avg	avg;
+#endif
+#endif /* CONFIG_MTK_SCHED_CMP */
 };
 
 struct sched_rt_entity {
@@ -1261,6 +1316,41 @@ enum perf_event_task_context {
 	perf_sw_context,
 	perf_nr_task_contexts,
 };
+
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+#define MAX_NUM_CLUSTER 2
+struct thread_group_info_t {
+	/* # of cfs threas in the thread group per cluster*/
+	unsigned long cfs_nr_running; 
+	/* # of threads in the thread group per cluster */
+	unsigned long nr_running;
+	/* runnable load of the thread group per cluster */
+	unsigned long load_avg_ratio;
+};
+
+#endif
+
+#ifdef CONFIG_MT_SCHED_NOTICE
+  #ifdef CONFIG_MT_SCHED_DEBUG
+#define mt_sched_printf(x...) \
+ do{                    \
+        char strings[128]="";  \
+        snprintf(strings, 128, x); \
+        printk(KERN_NOTICE x);          \
+        trace_sched_log(strings); \
+ }while (0)
+  #else
+#define mt_sched_printf(x...) \
+ do{                    \
+        char strings[128]="";  \
+        snprintf(strings, 128, x); \
+        trace_sched_log(strings); \
+ }while (0)
+  #endif
+  
+#else
+#define mt_sched_printf(x...) do {} while (0)
+#endif
 
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
@@ -1377,6 +1467,11 @@ struct task_struct {
 	struct list_head sibling;	/* linkage in my parent's children list */
 	struct task_struct *group_leader;	/* threadgroup leader */
 
+#ifdef CONFIG_MTK_SCHED_CMP_TGS
+	raw_spinlock_t thread_group_info_lock;
+	struct thread_group_info_t thread_group_info[MAX_NUM_CLUSTER];
+#endif
+
 	/*
 	 * ptraced is the list of tasks this task is using ptrace on.
 	 * This includes both natural children and PTRACE_ATTACH targets.
@@ -1403,6 +1498,10 @@ struct task_struct {
 	struct timespec real_start_time;	/* boot based time */
 /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
 	unsigned long min_flt, maj_flt;
+/* for thrashing accounting */
+#ifdef CONFIG_ZRAM
+    unsigned long fm_flt, swap_in, swap_out;
+#endif
 
 	struct task_cputime cputime_expires;
 	struct list_head cpu_timers[3];
@@ -1449,6 +1548,8 @@ struct task_struct {
 	int (*notifier)(void *priv);
 	void *notifier_data;
 	sigset_t *notifier_mask;
+    struct hlist_head task_works;
+
 	struct audit_context *audit_context;
 #ifdef CONFIG_AUDITSYSCALL
 	uid_t loginuid;
@@ -1827,6 +1928,9 @@ extern int task_free_unregister(struct notifier_block *n);
 #define PF_FROZEN	0x00010000	/* frozen for system suspend */
 #define PF_FSTRANS	0x00020000	/* inside a filesystem transaction */
 #define PF_KSWAPD	0x00040000	/* I am kswapd */
+#ifdef CONFIG_MTKPASR
+#define PF_MTKPASR	0x00080000	/* I am in MTKPASR process */
+#endif
 #define PF_LESS_THROTTLE 0x00100000	/* Throttle me less: I clean memory */
 #define PF_KTHREAD	0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
@@ -2134,6 +2238,15 @@ extern int sched_setscheduler(struct task_struct *, int,
 extern int sched_setscheduler_nocheck(struct task_struct *, int,
 				      const struct sched_param *);
 extern struct task_struct *idle_task(int cpu);
+
+#ifdef CONFIG_MT_PRIO_TRACER
+extern void set_user_nice_core(struct task_struct *p, long nice);
+extern int sched_setscheduler_core(struct task_struct *, int,
+				   const struct sched_param *);
+extern int sched_setscheduler_nocheck_core(struct task_struct *, int,
+					   const struct sched_param *);
+#endif
+
 /**
  * is_idle_task - is the specified task an idle task?
  * @p: the task in question.

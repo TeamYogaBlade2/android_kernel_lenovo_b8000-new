@@ -31,6 +31,9 @@
 #include "power.h"
 
 const char *const pm_states[PM_SUSPEND_MAX] = {
+#ifdef CONFIG_EARLYSUSPEND
+	[PM_SUSPEND_ON]		= "on",
+#endif
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
 };
@@ -207,6 +210,10 @@ int suspend_devices_and_enter(suspend_state_t state)
 	if (!suspend_ops)
 		return -ENOSYS;
 
+#ifdef CONFIG_TOI
+	drop_pagecache();
+#endif 
+
 	trace_machine_suspend(state);
 	if (suspend_ops->begin) {
 		error = suspend_ops->begin(state);
@@ -270,7 +277,7 @@ static void suspend_finish(void)
  * Fail if that's not the case.  Otherwise, prepare for system suspend, make the
  * system enter the given sleep state and clean up after wakeup.
  */
-static int enter_state(suspend_state_t state)
+int enter_state(suspend_state_t state)
 {
 	int error;
 

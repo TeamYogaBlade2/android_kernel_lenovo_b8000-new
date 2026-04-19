@@ -315,7 +315,13 @@ extern unsigned long get_safe_page(gfp_t gfp_mask);
 
 extern void hibernation_set_ops(const struct platform_hibernation_ops *ops);
 extern int hibernate(void);
+#ifdef CONFIG_MTK_HIBERNATION
+extern int pre_hibernate(void);
+extern int mtk_hibernate(void);
+extern int mtk_hibernate_abort(void);
+#endif
 extern bool system_entering_hibernation(void);
+extern bool system_hibernating(void);
 #else /* CONFIG_HIBERNATION */
 static inline void register_nosave_region(unsigned long b, unsigned long e) {}
 static inline void register_nosave_region_late(unsigned long b, unsigned long e) {}
@@ -326,6 +332,7 @@ static inline void swsusp_unset_page_free(struct page *p) {}
 static inline void hibernation_set_ops(const struct platform_hibernation_ops *ops) {}
 static inline int hibernate(void) { return -ENOSYS; }
 static inline bool system_entering_hibernation(void) { return false; }
+static inline bool system_hibernating(void) { return false; }
 #endif /* CONFIG_HIBERNATION */
 
 /* Hibernation and suspend events */
@@ -450,6 +457,9 @@ extern int toi_running;
 
 #define test_action_state(bit) (test_bit(bit, &toi_bkd.toi_action))
 extern int try_tuxonice_hibernate(void);
+#ifdef CONFIG_MTK_HIBERNATION
+extern int toi_abort_hibernate(void);
+#endif
 
 #else /* !CONFIG_TOI */
 
@@ -461,6 +471,9 @@ extern int try_tuxonice_hibernate(void);
 
 static inline int try_tuxonice_hibernate(void) { return 0; }
 #define test_action_state(bit) (0)
+#ifdef CONFIG_MTK_HIBERNATION
+static inline int toi_abort_hibernate(void) { return 0; }
+#endif
 
 #endif /* CONFIG_TOI */
 

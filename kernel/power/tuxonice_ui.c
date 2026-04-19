@@ -48,6 +48,7 @@ EXPORT_SYMBOL_GPL(toi_current_ui);
  * to userui being started, when we have an important warning to give to
  * the user.
  */
+#if defined(CONFIG_VT) || defined(CONFIG_SERIAL_CONSOLE)
 static char toi_wait_for_keypress(int timeout)
 {
 	if (toi_current_ui && toi_current_ui->wait_for_key(timeout))
@@ -55,6 +56,7 @@ static char toi_wait_for_keypress(int timeout)
 
 	return toi_wait_for_keypress_dev_console(timeout);
 }
+#endif
 
 /* toi_early_boot_message()
  * Description:	Handle errors early in the process of booting.
@@ -83,8 +85,8 @@ static char toi_wait_for_keypress(int timeout)
 void toi_early_boot_message(int message_detail, int default_answer,
 	char *warning_reason, ...)
 {
-#if defined(CONFIG_VT) || defined(CONFIG_SERIAL_CONSOLE)
 	unsigned long orig_state = get_toi_state(), continue_req = 0;
+#if defined(CONFIG_VT) || defined(CONFIG_SERIAL_CONSOLE)
 	unsigned long orig_loglevel = console_loglevel;
 	int can_ask = 1;
 #else

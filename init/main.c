@@ -76,6 +76,7 @@
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#include <linux/bootprof.h>
 #ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
 #endif
@@ -810,6 +811,7 @@ static noinline int init_post(void)
 	system_state = SYSTEM_RUNNING;
 	numa_default_policy();
 
+	log_boot("Kernel_init_done");
 
 	current->signal->flags |= SIGNAL_UNKILLABLE;
 
@@ -839,6 +841,10 @@ static noinline int init_post(void)
 	      "See Linux Documentation/init.txt for guidance.");
 }
 
+#ifdef CONFIG_MTK_HIBERNATION
+// IPO-H, move here for console ok after hibernaton
+extern int software_resume(void);
+#endif
 static int __init kernel_init(void * unused)
 {
 	/*
@@ -876,6 +882,11 @@ static int __init kernel_init(void * unused)
 
 	(void) sys_dup(0);
 	(void) sys_dup(0);
+
+#ifdef CONFIG_MTK_HIBERNATION
+    // IPO-H, move here for console ok after hibernaton resume
+    software_resume();
+#endif
 	/*
 	 * check if there is an early userspace init.  If yes, let it do all
 	 * the work

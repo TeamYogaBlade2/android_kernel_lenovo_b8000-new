@@ -61,24 +61,22 @@ static void copyback_high(void)
 	if (!pbe_page)
 		return;
 
-	this_pbe = (struct pbe *) kmap_atomic(pbe_page, KM_BOUNCE_READ);
+	this_pbe = (struct pbe *) kmap_atomic(pbe_page);
 	first_pbe = this_pbe;
 
 	while (this_pbe) {
 		int loop = (PAGE_SIZE / sizeof(unsigned long)) - 1;
 
-		origpage = kmap_atomic(pfn_to_page((unsigned long) this_pbe->orig_address),
-			KM_BIO_DST_IRQ);
-		copypage = kmap_atomic((struct page *) this_pbe->address,
-			KM_BIO_SRC_IRQ);
+        origpage = kmap_atomic(pfn_to_page((unsigned long) this_pbe->orig_address));
+        copypage = kmap_atomic((struct page *) this_pbe->address);
 
 		while (loop >= 0) {
 			*(origpage + loop) = *(copypage + loop);
 			loop--;
 		}
 
-		kunmap_atomic(origpage, KM_BIO_DST_IRQ);
-		kunmap_atomic(copypage, KM_BIO_SRC_IRQ);
+		kunmap_atomic(origpage);
+		kunmap_atomic(copypage);
 
 		if (!this_pbe->next)
 			break;
@@ -88,16 +86,15 @@ static void copyback_high(void)
 			pbe_index++;
 		} else {
 			pbe_page = (struct page *) this_pbe->next;
-			kunmap_atomic(first_pbe, KM_BOUNCE_READ);
+			kunmap_atomic(first_pbe);
 			if (!pbe_page)
 				return;
-			this_pbe = (struct pbe *) kmap_atomic(pbe_page,
-					KM_BOUNCE_READ);
+			this_pbe = (struct pbe *) kmap_atomic(pbe_page);
 			first_pbe = this_pbe;
 			pbe_index = 1;
 		}
 	}
-	kunmap_atomic(first_pbe, KM_BOUNCE_READ);
+	kunmap_atomic(first_pbe);
 }
 
 #else /* CONFIG_HIGHMEM */
@@ -174,7 +171,9 @@ struct toi_boot_kernel_data toi_bkd __nosavedata
 	(1 << TOI_REPLACE_SWSUSP) |
 #endif
 	(1 << TOI_NO_FLUSHER_THREAD) |
-	(1 << TOI_PAGESET2_FULL) | (1 << TOI_LATE_CPU_HOTPLUG),
+//    (1 << TOI_NO_MULTITHREADED_IO) |
+    (1 << TOI_LATE_CPU_HOTPLUG) |
+	(1 << TOI_PAGESET2_FULL),
 };
 EXPORT_SYMBOL_GPL(toi_bkd);
 
@@ -264,6 +263,12 @@ int toi_lowlevel_builtin(void)
 	error = swsusp_arch_suspend();
 	if (error)
 		printk(KERN_ERR "Error %d hibernating\n", error);
+
+#ifdef CONFIG_MTK_HIBERNATION
+    if(test_result_state(TOI_ARCH_PREPARE_FAILED)) {
+        hib_err("CAUTION: error(%d/0x%08x) \n", error, (unsigned int)toi_result);
+    }
+#endif
 
 	/* Restore control flow appears here */
 	if (!toi_in_hibernate) {

@@ -144,6 +144,14 @@ void toi_copy_pageset1(void)
 		int loop = (PAGE_SIZE / sizeof(unsigned long)) - 1,
 		    was_present1, was_present2;
 
+#ifdef CONFIG_MTK_HIBERNATION
+        if (!pfn_valid(source_index) || !pfn_valid(dest_index)) {
+            pr_emerg("[%s] (%d) dest_index:%lu, source_index:%lu\n", __func__, i, dest_index, source_index);
+            set_abort_result(TOI_ARCH_PREPARE_FAILED);
+            return;
+        }
+#endif
+
 		origpage = pfn_to_page(source_index);
 		copypage = pfn_to_page(dest_index);
 
@@ -341,38 +349,48 @@ Failed:
  **/
 int toi_go_atomic(pm_message_t state, int suspend_time)
 {
-  if (suspend_time) {
-    if (platform_begin(1)) {
-      set_abort_result(TOI_PLATFORM_PREP_FAILED);
-      toi_end_atomic(ATOMIC_STEP_PLATFORM_END, suspend_time, 3);
-      return 1;
-    }
+    if (suspend_time) {
+        if (platform_begin(1)) {
+            set_abort_result(TOI_PLATFORM_PREP_FAILED);
+            toi_end_atomic(ATOMIC_STEP_PLATFORM_END, suspend_time, 3);
+            hib_log("FAILED @line:%d suspend(%d) pm_state(%d)\n", __LINE__, suspend_time, state.event);
+            return 1;
+        }
 
-    if (dpm_prepare(PMSG_FREEZE)) {
-      set_abort_result(TOI_DPM_PREPARE_FAILED);
-      dpm_complete(PMSG_RECOVER);
-      toi_end_atomic(ATOMIC_STEP_PLATFORM_END, suspend_time, 3);
-      return 1;
+        if (dpm_prepare(PMSG_FREEZE)) {
+            set_abort_result(TOI_DPM_PREPARE_FAILED);
+            dpm_complete(PMSG_RECOVER);
+            toi_end_atomic(ATOMIC_STEP_PLATFORM_END, suspend_time, 3);
+            hib_log("FAILED @line:%d suspend(%d) pm_state(%d)\n", __LINE__, suspend_time, state.event);
+            return 1;
+        }
     }
-  }
 
 	suspend_console();
 	ftrace_stop();
 	pm_restrict_gfp_mask();
 
-  if (suspend_time) {
-    if (dpm_suspend(state)) {
-      set_abort_result(TOI_DPM_SUSPEND_FAILED);
-      toi_end_atomic(ATOMIC_STEP_DEVICE_RESUME, suspend_time, 3);
-      return 1;
+    if (suspend_time) {
+#if 0 // FIXME: jonathan.jmchen: trick code here to let dpm_suspend succeeded, NEED to find out the root cause!!
+        if (events_check_enabled) {
+            hib_log("play trick here set events_check_enabled(%d) = false!!\n", events_check_enabled);
+            events_check_enabled = false;
+        }
+#endif
+        if (dpm_suspend(state)) {
+            set_abort_result(TOI_DPM_SUSPEND_FAILED);
+            toi_end_atomic(ATOMIC_STEP_DEVICE_RESUME, suspend_time, 3);
+            hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
+            return 1;
+        }
+    } else {
+        if (dpm_suspend_start(state)) {
+            set_abort_result(TOI_DPM_SUSPEND_FAILED);
+            toi_end_atomic(ATOMIC_STEP_DEVICE_RESUME, suspend_time, 3);
+            hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
+            return 1;
+        }
     }
-  } else {
-    if (dpm_suspend_start(state)) {
-      set_abort_result(TOI_DPM_SUSPEND_FAILED);
-      toi_end_atomic(ATOMIC_STEP_DEVICE_RESUME, suspend_time, 3);
-      return 1;
-    }
-  }
 
 	/* At this point, dpm_suspend_start() has been called, but *not*
 	 * dpm_suspend_noirq(). We *must* dpm_suspend_noirq() now.
@@ -384,6 +402,7 @@ int toi_go_atomic(pm_message_t state, int suspend_time)
 	if (dpm_suspend_end(state)) {
 		set_abort_result(TOI_DEVICE_REFUSED);
 		toi_end_atomic(ATOMIC_STEP_DEVICE_RESUME, suspend_time, 1);
+        hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
 		return 1;
 	}
 
@@ -397,6 +416,7 @@ int toi_go_atomic(pm_message_t state, int suspend_time)
 
 	if (test_result_state(TOI_ABORTED)) {
 		toi_end_atomic(ATOMIC_STEP_PLATFORM_FINISH, suspend_time, 1);
+        hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
 		return 1;
 	}
 
@@ -404,7 +424,8 @@ int toi_go_atomic(pm_message_t state, int suspend_time)
 		if (disable_nonboot_cpus()) {
 			set_abort_result(TOI_CPU_HOTPLUG_FAILED);
 			toi_end_atomic(ATOMIC_STEP_CPU_HOTPLUG,
-					suspend_time, 1);
+                           suspend_time, 1);
+            hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
 			return 1;
 		}
 	}
@@ -414,14 +435,17 @@ int toi_go_atomic(pm_message_t state, int suspend_time)
 	if (syscore_suspend()) {
 		set_abort_result(TOI_SYSCORE_REFUSED);
 		toi_end_atomic(ATOMIC_STEP_IRQS, suspend_time, 1);
+        hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
 		return 1;
 	}
 
 	if (suspend_time && pm_wakeup_pending()) {
 		set_abort_result(TOI_WAKEUP_EVENT);
 		toi_end_atomic(ATOMIC_STEP_SYSCORE_RESUME, suspend_time, 1);
+        hib_log("FAILED @line:%d suspend(%d) pm_state(%d) toi_result(0x%#lx)\n", __LINE__, suspend_time, state.event, toi_result);
 		return 1;
 	}
+    hib_log("SUCCEEDED @line:%d suspend(%d) pm_state(%d)\n", __LINE__, suspend_time, state.event);
 	return 0;
 }
 
@@ -452,9 +476,9 @@ void toi_end_atomic(int stage, int suspend_time, int error)
 	case ATOMIC_STEP_PLATFORM_FINISH:
 		if (!suspend_time && error & 2)
 			platform_restore_cleanup(1);
-    else 
-      platform_finish(1);
-		dpm_resume_start(msg);
+    else
+        platform_finish(1);
+        dpm_resume_start(msg);
 	case ATOMIC_STEP_DEVICE_RESUME:
 		if (suspend_time && (error & 2))
 			platform_recover(1);

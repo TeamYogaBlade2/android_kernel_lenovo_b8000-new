@@ -711,7 +711,7 @@ int ubifs_mount_orphans(struct ubifs_info *c, int unclean, int read_only)
 	c->max_orphans = tot_avail_orphs(c);
 
 	if (!read_only) {
-		c->orph_buf = vmalloc(c->leb_size);
+		c->orph_buf = kmalloc(c->leb_size, GFP_KERNEL);
 		if (!c->orph_buf)
 			return -ENOMEM;
 	}
@@ -898,7 +898,7 @@ static int dbg_scan_orphans(struct ubifs_info *c, struct check_info *ci)
 	if (c->no_orphs)
 		return 0;
 
-	buf = __vmalloc(c->leb_size, GFP_NOFS, PAGE_KERNEL);
+	buf = kmalloc(c->leb_size, GFP_KERNEL);
 	if (!buf) {
 		ubifs_err("cannot allocate memory to check orphans");
 		return 0;
@@ -919,7 +919,7 @@ static int dbg_scan_orphans(struct ubifs_info *c, struct check_info *ci)
 			break;
 	}
 
-	vfree(buf);
+	kfree(buf);
 	return err;
 }
 

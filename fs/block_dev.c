@@ -30,6 +30,8 @@
 #include <asm/uaccess.h>
 #include "internal.h"
 
+#include <linux/xlog.h>
+
 struct bdev_inode {
 	struct block_device bdev;
 	struct inode vfs_inode;
@@ -1078,7 +1080,11 @@ int check_disk_change(struct block_device *bdev)
 	unsigned int events;
 
 	events = disk_clear_events(disk, DISK_EVENT_MEDIA_CHANGE |
-				   DISK_EVENT_EJECT_REQUEST);
+#ifdef MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+				   DISK_EVENT_EJECT_REQUEST | DISK_EVENT_MEDIA_DISAPPEAR);   //add DISK_EVENT_MEDIA_DISAPPEAR for sd hotplug
+#else
+					 DISK_EVENT_EJECT_REQUEST);
+#endif				   
 	if (!(events & DISK_EVENT_MEDIA_CHANGE))
 		return 0;
 
@@ -1380,14 +1386,21 @@ struct block_device *blkdev_get_by_path(const char *path, fmode_t mode,
 
 	bdev = lookup_bdev(path);
 	if (IS_ERR(bdev))
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "blkdev_get_by_path, lookup_bdev error\n"); 		
 		return bdev;
+		}
 
 	err = blkdev_get(bdev, mode, holder);
 	if (err)
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "blkdev_get_by_path, blkdev_get error: %d \n", err); 				
 		return ERR_PTR(err);
+		}
 
 	if ((mode & FMODE_WRITE) && bdev_read_only(bdev)) {
 		blkdev_put(bdev, mode);
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "blkdev_get_by_path, error EACCES\n"); 				
 		return ERR_PTR(-EACCES);
 	}
 
@@ -1679,19 +1692,31 @@ struct block_device *lookup_bdev(const char *pathname)
 
 	error = kern_path(pathname, LOOKUP_FOLLOW, &path);
 	if (error)
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "lookup_bdev, kern_path error:%d\n", error); 				
 		return ERR_PTR(error);
+		}
 
 	inode = path.dentry->d_inode;
 	error = -ENOTBLK;
 	if (!S_ISBLK(inode->i_mode))
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "lookup_bdev, error: ENOTBLK\n"); 				
 		goto fail;
+		}
 	error = -EACCES;
 	if (path.mnt->mnt_flags & MNT_NODEV)
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "lookup_bdev, error: MNT_NODEV\n"); 
 		goto fail;
+		}
 	error = -ENOMEM;
 	bdev = bd_acquire(inode);
 	if (!bdev)
+		{
+		xlog_printk(ANDROID_LOG_DEBUG, "MNT_TAG", "lookup_bdev, error: ENOMEM\n"); 
 		goto fail;
+		}
 out:
 	path_put(&path);
 	return bdev;
@@ -1721,3 +1746,39 @@ int __invalidate_device(struct block_device *bdev, bool kill_dirty)
 	return res;
 }
 EXPORT_SYMBOL(__invalidate_device);
+
+void iterate_bdevs(void (*func)(struct block_device *, void *), void *arg)
+{
+	struct inode *inode, *old_inode = NULL;
+
+	spin_lock(&inode_sb_list_lock);
+	list_for_each_entry(inode, &blockdev_superblock->s_inodes, i_sb_list) {
+		struct address_space *mapping = inode->i_mapping;
+
+		spin_lock(&inode->i_lock);
+		if (inode->i_state & (I_FREEING|I_WILL_FREE|I_NEW) ||
+		    mapping->nrpages == 0) {
+			spin_unlock(&inode->i_lock);
+			continue;
+		}
+		__iget(inode);
+		spin_unlock(&inode->i_lock);
+		spin_unlock(&inode_sb_list_lock);
+		/*
+		 * We hold a reference to 'inode' so it couldn't have been
+		 * removed from s_inodes list while we dropped the
+		 * inode_sb_list_lock.  We cannot iput the inode now as we can
+		 * be holding the last reference and we cannot iput it under
+		 * inode_sb_list_lock. So we keep the reference and iput it
+		 * later.
+		 */
+		iput(old_inode);
+		old_inode = inode;
+
+		func(I_BDEV(inode), arg);
+
+		spin_lock(&inode_sb_list_lock);
+	}
+	spin_unlock(&inode_sb_list_lock);
+	iput(old_inode);
+}

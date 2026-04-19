@@ -609,6 +609,7 @@ static void power_down(void)
 	while(1);
 }
 
+
 /**
  * hibernate - Carry out system hibernation, including saving the image.
  */
@@ -616,8 +617,12 @@ int hibernate(void)
 {
 	int error;
 
-	if (test_action_state(TOI_REPLACE_SWSUSP))
-		return try_tuxonice_hibernate();
+    hib_log("entering hibernate()\n");
+
+	if (test_action_state(TOI_REPLACE_SWSUSP)) {
+        error = try_tuxonice_hibernate();
+        return error;
+    }
 
 	lock_system_sleep();
 	/* The snapshot device should not be opened while we're running */
@@ -847,7 +852,10 @@ close_finish:
 	goto Finish;
 }
 
+#if !defined(CONFIG_MTK_HIBERNATION)
+// move to kernel_init() @ kernel/init/main.c
 late_initcall(software_resume);
+#endif
 
 
 static const char * const hibernation_modes[] = {

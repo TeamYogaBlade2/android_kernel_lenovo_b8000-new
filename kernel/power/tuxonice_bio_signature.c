@@ -124,12 +124,14 @@ int toi_bio_mark_have_image(void)
 	toi_sig_data->header_dev_t = get_header_dev_t();
 	toi_sig_data->have_uuid = 0;
 
+#if 1 // JJ: check this uuid is mismatch, such that it will failed on toi_bio_read_header_init() !!!
 	fs_info = fs_info_from_block_dev(get_header_bdev());
 	if (fs_info && !IS_ERR(fs_info)) {
 		memcpy(toi_sig_data->header_uuid, &fs_info->uuid, 16);
 		free_fs_info(fs_info);
 	} else
 		result = (int) PTR_ERR(fs_info);
+#endif
 
 	if (!result) {
 		toi_message(TOI_IO, TOI_VERBOSE, 0, "Got uuid for dev_t %s.",

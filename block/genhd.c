@@ -1488,11 +1488,17 @@ struct disk_events {
 static const char *disk_events_strs[] = {
 	[ilog2(DISK_EVENT_MEDIA_CHANGE)]	= "media_change",
 	[ilog2(DISK_EVENT_EJECT_REQUEST)]	= "eject_request",
+#ifdef MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+	[ilog2(DISK_EVENT_MEDIA_DISAPPEAR)]     = "media_disappear",
+#endif
 };
 
 static char *disk_uevents[] = {
 	[ilog2(DISK_EVENT_MEDIA_CHANGE)]	= "DISK_MEDIA_CHANGE=1",
 	[ilog2(DISK_EVENT_EJECT_REQUEST)]	= "DISK_EJECT_REQUEST=1",
+#ifdef MTK_MULTI_PARTITION_MOUNT_ONLY_SUPPORT	
+	[ilog2(DISK_EVENT_MEDIA_DISAPPEAR)] = "DISK_EVENT_MEDIA_DISAPPEAR=1",	
+#endif	
 };
 
 /* list of all disk_events */
@@ -1500,7 +1506,7 @@ static DEFINE_MUTEX(disk_events_mutex);
 static LIST_HEAD(disk_events);
 
 /* disable in-kernel polling by default */
-static unsigned long disk_events_dfl_poll_msecs	= 0;
+static unsigned long disk_events_dfl_poll_msecs	= 2000;
 
 static unsigned long disk_events_poll_jiffies(struct gendisk *disk)
 {

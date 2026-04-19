@@ -314,7 +314,9 @@ static void toi_end_bio(struct bio *bio, int err)
 {
 	struct page *page = bio->bi_io_vec[0].bv_page;
 
-	BUG_ON(!test_bit(BIO_UPTODATE, &bio->bi_flags));
+    //hib_log("err %d flags 0x%08x\n", err, bio->bi_flags);
+    if (!err)
+        BUG_ON(!test_bit(BIO_UPTODATE, &bio->bi_flags));
 
 	unlock_page(page);
 	bio_put(bio);
@@ -1434,7 +1436,9 @@ static int toi_bio_write_header_cleanup(void)
 static int toi_bio_read_header_init(void)
 {
 	int result = 0;
+#if 0 // JJ: mismatch caused by toi_bio_mark_have_image()'s wrong uuid information
 	char buf[32];
+#endif
 
 	toi_writer_buffer_posn = 0;
 
@@ -1452,6 +1456,7 @@ static int toi_bio_read_header_init(void)
 	 */
 	toi_message(TOI_BIO, TOI_VERBOSE, 0, "Header dev_t is %lx.",
 			toi_sig_data->header_dev_t);
+#if 0 // JJ: mismatch caused by toi_bio_mark_have_image()'s wrong uuid information
 	if (toi_sig_data->have_uuid) {
 		struct fs_info seek;
 		dev_t device;
@@ -1466,6 +1471,7 @@ static int toi_bio_read_header_init(void)
 			toi_sig_data->header_dev_t = device;
 		}
 	}
+#endif
 	if (toi_sig_data->header_dev_t != resume_dev_t) {
 		header_block_device = toi_open_bdev(NULL,
 				toi_sig_data->header_dev_t, 1);
@@ -1587,10 +1593,16 @@ static int try_to_open_resume_device(char *commandline, int quiet)
 	char *uuid = uuid_from_commandline(commandline);
 	int waited_for_device_probe = 0;
 
+    hib_log("commandline=\"%s\"\n", commandline);
 	resume_dev_t = MKDEV(0, 0);
 
-	if (!strlen(commandline))
+	if (!strlen(commandline)) {
+#ifdef CONFIG_MTK_HIBERNATION
+        hib_warn("skip scanning for image...\n");
+#else
 		retry_if_fails(toi_bio_scan_for_image(quiet));
+#endif
+    }
 
 	if (uuid) {
 		struct fs_info seek;
@@ -1690,6 +1702,8 @@ static int toi_bio_parse_sig_location(char *commandline,
 		temp_result = strict_strtoul(colon + 1, 0, &block);
 		if (!temp_result)
 			resume_firstblock = (int) block;
+    } else if (swsusp_resume_block) {
+        resume_firstblock = swsusp_resume_block;
 	} else
 		resume_firstblock = 0;
 
@@ -1742,6 +1756,14 @@ static int toi_bio_remove_image(void)
 	toi_message(TOI_BIO, TOI_VERBOSE, 0, "toi_bio_remove_image.");
 
 	result = toi_bio_restore_original_signature();
+
+#ifdef CONFIG_MTK_HIBERNATION
+    // from lk
+    if(get_env("hibboot") != NULL) {
+        hib_log("hibboot = %s\n", get_env("hibboot"));
+        set_env("hibboot", "0");
+    }
+#endif
 
 	/*
 	 * We don't do a sanity check here: we want to restore the swap

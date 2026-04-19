@@ -12,6 +12,9 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/trace_seq.h>
 #include <linux/ftrace_event.h>
+#ifdef CONFIG_MT65XX_TRACER
+#include <mach/mt_mon.h>
+#endif
 
 enum trace_type {
 	__TRACE_FIRST_TYPE = 0,
@@ -29,6 +32,8 @@ enum trace_type {
 	TRACE_GRAPH_ENT,
 	TRACE_USER_STACK,
 	TRACE_BLK,
+    TRACE_MTK_SET_SCHED,
+    TRACE_MT65XX_MON_TYPE,
 
 	__TRACE_LAST_TYPE,
 };
@@ -204,6 +209,10 @@ extern void __ftrace_bad_type(void);
 			  TRACE_GRAPH_ENT);		\
 		IF_ASSIGN(var, ent, struct ftrace_graph_ret_entry,	\
 			  TRACE_GRAPH_RET);		\
+        IF_ASSIGN(var, ent, struct set_sched_entry, \
+                TRACE_MTK_SET_SCHED); \
+        IF_ASSIGN(var, ent, struct mt65xx_mon_entry, \
+                TRACE_MT65XX_MON_TYPE); \
 		__ftrace_bad_type();					\
 	} while (0)
 

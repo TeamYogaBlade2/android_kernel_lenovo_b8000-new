@@ -217,13 +217,4 @@ int ubi_leb_map(struct ubi_volume_desc *desc, int lnum);
 int ubi_is_mapped(struct ubi_volume_desc *desc, int lnum);
 int ubi_sync(int ubi_num);
 
-/*
- * This function is the same as the 'ubi_leb_read()' function, but it does not
- * provide the checking capability.
- */
-static inline int ubi_read(struct ubi_volume_desc *desc, int lnum, char *buf,
-			   int offset, int len)
-{
-	return ubi_leb_read(desc, lnum, buf, offset, len, 0);
-}
 #endif /* !__LINUX_UBI_H__ */

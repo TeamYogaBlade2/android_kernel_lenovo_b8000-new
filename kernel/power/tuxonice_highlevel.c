@@ -105,6 +105,7 @@ EXPORT_SYMBOL_GPL(tuxonice_signature);
 
 unsigned long boot_kernel_data_buffer;
 
+#if 0
 static char *result_strings[] = {
 	"Hibernation was aborted",
 	"The user requested that we cancel the hibernation",
@@ -139,6 +140,8 @@ static char *result_strings[] = {
 	"Header reservation too small",
 	"Device Power Management Preparation failed",
 };
+#endif
+
 
 /**
  * toi_finish_anything - cleanup after doing anything
@@ -151,6 +154,7 @@ static char *result_strings[] = {
  **/
 void toi_finish_anything(int hibernate_or_resume)
 {
+    hib_log("hibernate_or_resume(%d)\n", hibernate_or_resume);
 	toi_cleanup_modules(hibernate_or_resume);
 	toi_put_modules();
 	if (hibernate_or_resume) {
@@ -158,7 +162,7 @@ void toi_finish_anything(int hibernate_or_resume)
 		set_cpus_allowed_ptr(current, cpu_all_mask);
 		toi_alloc_print_debug_stats();
 		atomic_inc(&snapshot_device_available);
-    unlock_system_sleep();
+        unlock_system_sleep();
 	}
 
 	set_fs(oldfs);
@@ -181,7 +185,7 @@ int toi_start_anything(int hibernate_or_resume)
 	set_fs(KERNEL_DS);
 
 	if (hibernate_or_resume) {
-    lock_system_sleep();
+        lock_system_sleep();
 
 		if (!atomic_add_unless(&snapshot_device_available, -1, 0))
 			goto snapshotdevice_unavailable;
@@ -205,8 +209,10 @@ int toi_start_anything(int hibernate_or_resume)
 	if (toi_initialise_modules_early(hibernate_or_resume))
 		goto early_init_err;
 
-	if (!toiActiveAllocator)
-		toi_attempt_to_parse_resume_device(!hibernate_or_resume);
+	if (!toiActiveAllocator) {
+        hib_log("hibernate_or_resume(0x%08x), resume_file=\"%s\"\n", hibernate_or_resume, resume_file);
+        toi_attempt_to_parse_resume_device(!hibernate_or_resume);
+    }
 
 	if (!toi_initialise_modules_late(hibernate_or_resume))
 		return 0;
@@ -395,16 +401,21 @@ static int get_toi_debug_info(const char *buffer, int count)
 
 	for (i = 0; i < TOI_NUM_RESULT_STATES; i++)
 		if (test_result_state(i)) {
+            #if 0
 			SNPRINTF("%s: %s.\n", first_result ?
 					"- Result         " :
 					"                 ",
 					result_strings[i]);
+            #endif
 			first_result = 0;
 		}
-	if (first_result)
+	if (first_result) {
+        #if 0
 		SNPRINTF("- Result         : %s.\n", nr_hibernates ?
 			"Succeeded" :
 			"No hibernation attempts so far");
+        #endif
+    }
 	return len;
 }
 
@@ -424,6 +435,10 @@ static void do_cleanup(int get_debug_info, int restarting)
 
 	if (get_debug_info)
 		toi_prepare_status(DONT_CLEAR_BAR, "Cleaning up...");
+#if !defined(HIB_TOI_DEBUG) // turn off the verbose when debug off
+    hib_warn("Turn off debug info\n");
+    get_debug_info = 0;
+#endif
 
 	free_checksum_pages();
 
@@ -531,6 +546,11 @@ static int toi_init(int restarting)
 {
 	int result, i, j;
 
+    // - MTK jonathan.jmchen
+    if (test_result_state(TOI_ABORTED))
+        return 1;
+    //
+
 	toi_result = 0;
 
 	printk(KERN_INFO "Initiating a hibernation cycle.\n");
@@ -558,8 +578,9 @@ static int toi_init(int restarting)
 	set_toi_state(TOI_NOTIFIERS_PREPARE);
 
 	if (!restarting) {
-		printk(KERN_ERR "Starting other threads.");
-		toi_start_other_threads();
+        int num_threaded;
+		num_threaded = toi_start_other_threads();
+		printk(KERN_ERR "Starting other threads (%d).", num_threaded);
 	}
 
 	result = usermodehelper_disable();
@@ -619,6 +640,8 @@ static int can_hibernate(void)
 			return 0;
 		}
 	}
+
+    hib_log("passed!\n");
 
 	return 1;
 }
@@ -684,6 +707,7 @@ static int __save_image(void)
 	if (toi_go_atomic(PMSG_FREEZE, 1))
 		goto Failed;
 
+    hib_log("calling toi_hibernate()\n");
 	temp_result = toi_hibernate();
 
 #ifdef CONFIG_KGDB
@@ -694,6 +718,7 @@ static int __save_image(void)
 	if (!temp_result)
 		did_copy = 1;
 
+    hib_log("calling toi_end_atomic() toi_in_hibernate(%d) temp_result(%d)\n", toi_in_hibernate, temp_result);
 	/* We return here at resume time too! */
 	toi_end_atomic(ATOMIC_ALL_STEPS, toi_in_hibernate, temp_result);
 
@@ -703,6 +728,7 @@ Failed:
 
 	/* Resume time? */
 	if (!toi_in_hibernate) {
+        hib_log("last resume here ...\n");
 		copyback_post();
 		return 0;
 	}
@@ -715,6 +741,7 @@ Failed:
 		else
 			return 1;
 	}
+    hib_log("@line:%d\n", __LINE__);
 
 	toi_update_status(pagedir2.size, pagedir1.size + pagedir2.size,
 			NULL);
@@ -798,6 +825,7 @@ static int do_prepare_image(void)
 	if (!restarting && toi_activate_storage(0))
 		return 1;
 
+    hib_log("step 1 @line:%d\n", __LINE__);
 	/*
 	 * If kept image and still keeping image and hibernating to RAM, we will
 	 * return 1 after hibernating and resuming (provided the power doesn't
@@ -809,9 +837,13 @@ static int do_prepare_image(void)
 	     check_still_keeping_image()))
 		return 1;
 
+    hib_log("step 2 @line:%d\n", __LINE__);
+
 	if (toi_init(restarting) || toi_prepare_image() ||
 			test_result_state(TOI_ABORTED))
 		return 1;
+
+    hib_log("step 3 @line:%d\n", __LINE__);
 
 	trap_non_toi_io = 1;
 
@@ -998,15 +1030,25 @@ EXPORT_SYMBOL_GPL(do_toi_step);
  **/
 void toi_try_resume(void)
 {
+    int num_threaded;
+
+    hib_log("entering...\n");
 	set_toi_state(TOI_TRYING_TO_RESUME);
 	resume_attempted = 1;
 
 	current->flags |= PF_MEMALLOC;
-	toi_start_other_threads();
+
+    get_online_cpus(); // to protect against hotplug interference
+	num_threaded = toi_start_other_threads();
+    printk(KERN_ERR "[resume] Starting other threads (%d).", num_threaded);
 
 	if (do_toi_step(STEP_RESUME_CAN_RESUME) &&
-			!do_toi_step(STEP_RESUME_LOAD_PS1))
+        !do_toi_step(STEP_RESUME_LOAD_PS1)) {
+        put_online_cpus(); // to protect against hotplug interference
 		do_toi_step(STEP_RESUME_DO_RESTORE);
+    } else {
+        put_online_cpus();  // to protect against hotplug interference
+    }
 
 	toi_stop_other_threads();
 	do_cleanup(0, 0);
@@ -1052,6 +1094,8 @@ out:
 	lockdep_on();
 }
 
+
+
 /**
  * toi_try_hibernate - try to start a hibernation cycle
  *
@@ -1071,8 +1115,9 @@ int toi_try_hibernate(void)
 
 	if (!mutex_is_locked(&tuxonice_in_use)) {
 		/* Came in via /sys/power/disk */
-		if (toi_start_anything(SYSFS_HIBERNATING))
+		if (toi_start_anything(SYSFS_HIBERNATING)) {
 			return -EBUSY;
+        }
 		sys_power_disk = 1;
 	}
 
@@ -1085,6 +1130,7 @@ int toi_try_hibernate(void)
 
 prepare:
 	result = do_toi_step(STEP_HIBERNATE_PREPARE_IMAGE);
+    hib_log("after calling do_toi_step(STEP_HIBERNATE_PREPARE_IMAGE), result(%d)\n", result);
 
 	if (result)
 		goto out;
@@ -1096,6 +1142,7 @@ prepare:
 
 	if (test_result_state(TOI_EXTRA_PAGES_ALLOW_TOO_SMALL)) {
 		if (retries < 2) {
+            hib_log("failed and calling do_cleanup(0, 1)\n");
 			do_cleanup(0, 1);
 			retries++;
 			clear_result_state(TOI_ABORTED);
@@ -1115,6 +1162,7 @@ prepare:
 	if (!result && toi_in_hibernate)
 		result = do_toi_step(STEP_HIBERNATE_POWERDOWN);
 
+
 out_restore_gfp_mask:
 	pm_restore_gfp_mask();
 out:
@@ -1124,7 +1172,14 @@ out:
 	if (sys_power_disk)
 		toi_finish_anything(SYSFS_HIBERNATING);
 
-	return result;
+#ifdef CONFIG_MTK_HIBERNATION
+    // enhanced error handling
+    if (test_result_state(TOI_ARCH_PREPARE_FAILED)) {
+        result = 0xdead; // magic code here
+    }
+#endif
+
+    return result;
 }
 
 /*
@@ -1203,6 +1258,19 @@ int toi_launch_userspace_program(char *command, int channel_no,
 
 	return retval;
 }
+
+#ifdef CONFIG_MTK_HIBERNATION
+int toi_abort_hibernate(void)
+{
+	if (test_result_state(TOI_ABORTED))
+		return 0;
+
+	set_result_state(TOI_ABORTED);
+
+    return 0;
+}
+EXPORT_SYMBOL_GPL(toi_abort_hibernate);
+#endif
 
 /*
  * This array contains entries that are automatically registered at

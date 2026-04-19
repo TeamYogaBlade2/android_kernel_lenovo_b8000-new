@@ -904,6 +904,9 @@ void unmap_vmas(struct mmu_gather *tlb,
 		unsigned long end_addr, unsigned long *nr_accounted,
 		struct zap_details *);
 
+int zero_page_range(struct vm_area_struct *vma, unsigned long address,
+		unsigned long size);
+
 /**
  * mm_walk - callbacks for walk_page_range
  * @pgd_entry: if set, called for each non-empty PGD (top-level) entry
