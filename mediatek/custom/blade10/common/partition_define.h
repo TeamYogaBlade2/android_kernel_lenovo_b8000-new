@@ -76,7 +76,7 @@
 
 #define PART_MAX_COUNT			 40
 
-#define MBR_START_ADDRESS_BYTE			(12288*KB)
+#define MBR_START_ADDRESS_BYTE			(6144*KB)
 
 #define WRITE_SIZE_Byte		512
 typedef enum  {
