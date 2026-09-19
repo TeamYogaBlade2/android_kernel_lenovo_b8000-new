@@ -536,10 +536,11 @@ static int tpd_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	int ret = 0;  
 	//char product_id[6] = {0};
 
-	hwPowerOn(MT65XX_POWER_LDO_VGP5, VOL_2800, "TP");    
-    msleep(10);
+	hwPowerOn(MT65XX_POWER_LDO_VGP4, VOL_2800, "TP");
+	hwPowerOn(MT65XX_POWER_LDO_VGP6, VOL_1800, "TP");
+	msleep(10);
 
-    mt_set_gpio_mode(GPIO_CTP_EINT_PIN, GPIO_CTP_EINT_PIN_M_EINT);
+	mt_set_gpio_mode(GPIO_CTP_EINT_PIN, GPIO_CTP_EINT_PIN_M_EINT);
 	mt_set_gpio_dir(GPIO_CTP_EINT_PIN, GPIO_DIR_IN);
 	mt_set_gpio_pull_enable(GPIO_CTP_EINT_PIN, GPIO_PULL_ENABLE);
 	mt_set_gpio_pull_select(GPIO_CTP_EINT_PIN, GPIO_PULL_UP);
@@ -627,9 +628,13 @@ static int tpd_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	
 
-	//mt65xx_eint_set_sens(CUST_EINT_TOUCH_PANEL_NUM, CUST_EINT_TOUCH_PANEL_SENSITIVE);
-	//mt65xx_eint_set_hw_debounce(CUST_EINT_TOUCH_PANEL_NUM, CUST_EINT_TOUCH_PANEL_DEBOUNCE_CN);
-	mt_eint_registration(CUST_EINT_TOUCH_PANEL_NUM, CUST_EINT_TOUCH_PANEL_TYPE, tpd_eint_handler, 1);
+	mt_eint_set_sens(CUST_EINT_TOUCH_PANEL_NUM,
+			 CUST_EINT_TOUCH_PANEL_SENSITIVE);
+	mt_eint_set_hw_debounce(CUST_EINT_TOUCH_PANEL_NUM,
+				CUST_EINT_TOUCH_PANEL_DEBOUNCE_CN);
+	mt_eint_registration(CUST_EINT_TOUCH_PANEL_NUM,
+			     CUST_EINT_TOUCH_PANEL_TYPE,
+			     tpd_eint_handler, 0);
 	mt_eint_unmask(CUST_EINT_TOUCH_PANEL_NUM);
 
 
@@ -1286,4 +1291,3 @@ module_init(tpd_driver_init);
 module_exit(tpd_driver_exit);
 
 MODULE_DESCRIPTION("Mediatek s7300 Driver");
-
