@@ -1011,6 +1011,7 @@ static int i2c_update_firmware(struct i2c_client *client)
 	int ret = 0;
 	//const char filename[]="/sdcard/update/synaptics.img";
 	const char filename[]="/storage/sdcard1/update/synaptics.img";
+	const char fallback_filename[]="/storage/sdcard0/update/synaptics.img";
 
 	/* open file */
 	oldfs = get_fs();
@@ -1018,9 +1019,14 @@ static int i2c_update_firmware(struct i2c_client *client)
 	filp = filp_open(filename, O_RDONLY, S_IRUSR);
 	if (IS_ERR(filp))
 	{
-            printk("%s: file %s filp_open error\n", __FUNCTION__,filename);
-            set_fs(oldfs);
-            return -1;
+		filp = filp_open(fallback_filename, O_RDONLY, S_IRUSR);
+		if (IS_ERR(filp))
+		{
+			printk("%s: file %s filp_open error\n",
+			       __FUNCTION__, filename);
+			set_fs(oldfs);
+			return -1;
+		}
 	}
 
 	if (!filp->f_op)
