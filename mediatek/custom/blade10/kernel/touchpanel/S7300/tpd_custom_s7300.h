@@ -20,7 +20,6 @@
 
 
 #define TPD_HAVE_CALIBRATION
-#define TPD_HAVE_BUTTON
 //#define TPD_HAVE_TREMBLE_ELIMINATION
 #define TPD_KEY_COUNT           3
 #define TPD_KEYS                { KEY_BACK, KEY_HOME,KEY_MENU}
