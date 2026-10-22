@@ -47,20 +47,32 @@ typedef struct{
 /* Battery Meter Solution */
 #define CONFIG_ADC_SOLUTION 	1
 
-/* Battery Voltage and Percentage Mapping Table */
+/*
+ * Battery Voltage and Percentage Mapping Table.
+ *
+ * Read out of the shipped kernel image (kernel_blade10_row_wifi-kk.elf): the
+ * table is the 11 {mV, percent} pairs at 0xc098dc20, found by searching for
+ * the 3400 mV first entry and checked for a strictly increasing ladder.
+ *
+ * The values this table used to carry (3691/3736/3772/3797/3828 for the
+ * 10..50% points, and so on) did not match the shipped kernel at any entry
+ * above 0%: this board reports a flatter curve, 3641 mV at 10% against 3691.
+ * A wrong table here means the UI shows the wrong charge level and, worse,
+ * the low-battery shutdown threshold lands at the wrong voltage.
+ */
 VBAT_TO_PERCENT Batt_VoltToPercent_Table[] = {
 	/*BattVolt,BattPercent*/
 	{3400,0},
-	{3691,10},
-	{3736,20},
-	{3772,30},
-	{3797,40},
-	{3828,50},
-	{3888,60},
-	{3944,70},
-	{4010,80},
-	{4100,90},
-	{4176,100},
+	{3641,10},
+	{3708,20},
+	{3741,30},
+	{3765,40},
+	{3793,50},
+	{3836,60},
+	{3891,70},
+	{3960,80},
+	{4044,90},
+	{4183,100},
 };
 
 /* Precise Tunning */
