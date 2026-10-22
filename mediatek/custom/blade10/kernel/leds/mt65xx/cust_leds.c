@@ -117,10 +117,31 @@ unsigned int Cust_SetBacklight(int level, int div)
  *-------------------------------------------------------------------------------------------
  */
 static struct cust_mt65xx_led cust_led_list[MT65XX_LED_TYPE_TOTAL] = {
-	{"red",              MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK1,{0}},
-	{"green",            MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK0,{0}},
-	{"blue",              MT65XX_LED_MODE_NONE, -1,{0}},
-	{"jogball-backlight",   MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK0,{0}},	
+	/*
+	 * The seven entries below are the shipped kernel's table verbatim.
+	 * get_cust_led_list() (kernel_blade10_row_wifi-kk.elf @ c0461ea0) returns
+	 * &DAT_c098c6e4, an array of seven 8-int records {name, mode, data, ...}:
+	 *
+	 *   red                PMIC  ISINK0
+	 *   green              PMIC  ISINK1
+	 *   blue               PMIC  ISINK0
+	 *   jogball-backlight  NONE  -1
+	 *   keyboard-backlight NONE  -1
+	 *   button-backlight   PMIC  BUTTON
+	 *   lcd-backlight      CUST_BLS_PWM
+	 *
+	 * This file previously had red and green on each other's ISINK, blue
+	 * disabled, and jogball enabled on ISINK0.  Because ISINK channels are
+	 * the physical current sinks wired to the RGB LED, swapping red and green
+	 * does not just tint the indicator - it drives the wrong sink, so the
+	 * colours come out wrong and the notification light never matches what
+	 * the framework asked for.  Enabling jogball on ISINK0 also makes that
+	 * channel contend with the red LED on a device that has no jogball.
+	 */
+	{"red",              MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK0,{0}},
+	{"green",            MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK1,{0}},
+	{"blue",             MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_NLED_ISINK0,{0}},
+	{"jogball-backlight",MT65XX_LED_MODE_NONE, -1,{0}},
 	{"keyboard-backlight",MT65XX_LED_MODE_NONE, -1,{0}},
 	{"button-backlight",  MT65XX_LED_MODE_PMIC, MT65XX_LED_PMIC_BUTTON,{0}},
 	{"lcd-backlight",     MT65XX_LED_MODE_CUST_BLS_PWM, (int)disp_bls_set_backlight,{0}},
@@ -130,4 +151,3 @@ struct cust_mt65xx_led *get_cust_led_list(void)
 {
 	return cust_led_list;
 }
-
