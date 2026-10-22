@@ -57,11 +57,30 @@
 #define KPD_PWRKEY_MAP    KEY_POWER
 #define MTK_PMIC_PWR_KEY    8
 
-/* HW keycode [0 ~ 71] -> Linux keycode */
+/*
+ * HW keycode [0 ~ 71] -> Linux keycode
+ *
+ * Taken from the shipped kernel: kpd_init_keymap() (kernel_blade10_row_wifi-kk.elf
+ * @ c050b31c) copies 0x90 bytes (72 u16 entries) from the table at c071c1d8, and
+ * that table has exactly two non-zero entries:
+ *
+ *   [0] = 115 = KEY_VOLUMEUP
+ *   [2] = 114 = KEY_VOLUMEDOWN
+ *
+ * This file had them at [10] and [11] instead.  The indices here are hardware
+ * scan codes, and getting them wrong does not fail to build or warn at runtime -
+ * it silently maps the volume rocker to keycodes the scan hardware never
+ * produces, so the buttons do nothing while everything else looks healthy.
+ *
+ * Note the LK-side KPD_DL_KEY2/KPD_DL_KEY3 and MT65XX_RECOVERY_KEY/FACTORY_KEY
+ * below still use 10/11.  Those are the bootloader's own key indices, a
+ * different numbering space from the kernel scan codes, so they are left alone
+ * rather than being "made consistent" with the table above.
+ */
 #define KPD_INIT_KEYMAP()	\
 {	\
-	[10] = KEY_VOLUMEUP,		\
-	[11] = KEY_VOLUMEDOWN,		\
+	[0] = KEY_VOLUMEUP,		\
+	[2] = KEY_VOLUMEDOWN,		\
 }	 
 /*****************************************************************/
 /*******************Preload Customation***************************/
@@ -101,5 +120,4 @@
 
 
 #endif
-
 
