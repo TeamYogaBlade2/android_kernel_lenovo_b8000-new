@@ -94,8 +94,17 @@ u32 pinSetIdx = 0;//default main sensor
 	        GPIO_OUT_ZERO,                  /* OFF state */
 	     	GPIO_CAMERA_CMPDN_PIN,
 	        GPIO_CAMERA_CMPDN_PIN_M_GPIO,
-	        GPIO_OUT_ZERO,
+	        /*
+	         * Both lines end up driven high when the camera is on.
+	         * kdCISModulePowerOn() in the shipped kernel
+	         * (kernel_blade10_row_wifi-kk.elf @ c0454c40) reads its
+	         * descriptor from the table at c07133e4, whose main-camera
+	         * entry is {211, 0, 1, 0, 212, 0, 1, 0}: gpio, mode,
+	         * ON-state, OFF-state for each pin.  Power-down was 1->0 here
+	         * and is 0->1 in the shipped kernel.
+	         */
 	        GPIO_OUT_ONE,
+	        GPIO_OUT_ZERO,
 		
 	    },
 	    //for sub sensor 
@@ -106,8 +115,9 @@ u32 pinSetIdx = 0;//default main sensor
 	        GPIO_OUT_ZERO,
 	     	GPIO_CAMERA_CMPDN1_PIN,
 	        GPIO_CAMERA_CMPDN1_PIN_M_GPIO,
-	        GPIO_OUT_ZERO,
+	        /* Same correction as the main camera: {32,0,1,0,31,0,1,0}. */
 	        GPIO_OUT_ONE,
+	        GPIO_OUT_ZERO,
 //			GPIO_OUT_ONE,
 //			GPIO_OUT_ZERO,
 			
@@ -2778,7 +2788,6 @@ EXPORT_SYMBOL(kdCISModulePowerOn);
 
 //!--
 //
-
 
 
 
