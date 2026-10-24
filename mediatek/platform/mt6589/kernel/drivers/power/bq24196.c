@@ -611,8 +611,25 @@ static struct platform_driver bq24196_user_space_driver = {
     },
 };
 
+/*
+ * Which i2c bus this part sits on comes from the device tree, and it is the
+ * opposite of what this file used to say:
+ *
+ *   arch/arm/boot/dts/mediatek/mt6589-lenovo-blade.dtsi
+ *       &i2c4 { bq27541: fuel-gauge@55 { reg = <0x55>; }; };
+ *       &i2c6 { bq24196: charger@6b    { reg = <0x6b>; }; };
+ *
+ * bq24196 is on i2c6 and bq27541 is on i2c4.
+ *
+ * The old values were inherited from the bq/aquaris-5 base this tree was reverse
+ * engineered against, where the two parts were the other way round. Both drivers
+ * exist and work; only the bus numbers were wrong for this board.
+ *
+ * Confirmed against the emulator: with the charger attached to i2c6 as the DTS
+ * says, LK's bq24196 transfers complete instead of being NACKed.
+ */
 #ifndef BQ24196_BUSNUM
-#define BQ24196_BUSNUM 4
+#define BQ24196_BUSNUM 6
 #endif
 
 static struct i2c_board_info __initdata i2c_bq24196 = { I2C_BOARD_INFO("bq24196", (0xd6>>1))};
