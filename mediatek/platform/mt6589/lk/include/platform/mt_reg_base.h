@@ -50,7 +50,13 @@
 #define KP_BASE         	(IO_PHYS + 0x00015000)
 //#define RTC_BASE         	(IO_PHYS + 0x01003000)
 #define RTC_BASE 			(0xE000)
-#define SEJ_BASE         	(IO_PHYS + 0x0002D000)
+/* SEJ is at 0x1000_A000, per datasheet Table 3-1 (0x1000_9000 EFUSEC,
+ * 0x1000_A000 SEJ, 0x1000_B000 AP_CIRQ_EINT) and the downstream kernel's own
+ * mt_reg_base.h (SEJ_BASE 0xF000A000 -> 0x1000A000 under IO_VIRT_TO_PHYS).
+ * This file said 0x0002D000, which the datasheet does not list at all. Nothing
+ * in LK referenced the macro, so this is a latent-wrong-value fix rather than a
+ * behaviour change. */
+#define SEJ_BASE         	(IO_PHYS + 0x0000A000)
 #define IRDA_BASE       	(IO_PHYS + 0x0002F000) //(IO_PHYS + 0x00037000)
 #define MSDC0_BASE          (IO_PHYS + 0x01230000)
 #define MSDC1_BASE          (IO_PHYS + 0x01240000)
